@@ -1,0 +1,87 @@
+// Isso diz ao Prisma como se conectar (usando o .env)
+datasource db {
+  provider = "postgresql"
+}
+
+// Isso gera o cliente TypeScript que usaremos no Express
+generator client {
+  provider = "prisma-client-js"
+}
+
+// --- NOSSAS TABELAS ---
+
+model Coordenacao {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nome            String   @db.VarChar(255)
+  sigla           String   @db.VarChar(20)
+  descricao       String?  @db.Text
+  icone           String?  @db.VarChar(50)
+  ordem_exibicao  Int?
+  
+  // Relacionamento: Uma coordenação tem vários avisos
+  avisos          Aviso[]
+
+  @@map("coordenacoes") // Nome da tabela no banco
+}
+
+model Aviso {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  titulo          String      @db.VarChar(255)
+  link_anexo      String?     @db.VarChar(255)
+  data_publicacao DateTime    @default(now())
+  ativo           Boolean     @default(true)
+  
+  coordenacao_id  String      @db.Uuid
+  // Relacionamento: Esse aviso pertence a uma coordenação
+  coordenacao     Coordenacao @relation(fields: [coordenacao_id], references: [id], onDelete: Cascade)
+
+  @@map("avisos")
+}
+
+model ComunicadoCarrossel {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  titulo          String   @db.VarChar(255)
+  imagem_url      String   @db.VarChar(255)
+  link_destino    String?  @db.VarChar(255)
+  ordem_exibicao  Int?
+  ativo           Boolean  @default(true)
+
+  @@map("comunicados_carrossel")
+}
+
+// Adicione este bloco para definir os estados possíveis do usuário
+enum UserStatus {
+  PENDENTE
+  APROVADO
+  BLOQUEADO
+}
+
+model Usuario {
+  id         String     @id @default(uuid())
+  nome       String
+  email      String     @unique
+  senha      String
+  cargo      String
+  status     UserStatus @default(PENDENTE)
+
+  // No PostgreSQL, o Prisma permite salvar uma lista de strings diretamente
+  // Aqui guardaremos as chaves das permissões, ex: ["mural", "indicadores"]
+  permissoes String[]   @default([])
+
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@map("usuarios")
+}
+
+model Documento {
+  id              Int      @id @default(autoincrement())
+  titulo          String
+  descricao       String?
+  nome_arquivo    String
+  tipo_extensao   String
+  tamanho         Int
+  url_caminho     String
+  data_cadastro   DateTime @default(now())
+  criado_por_nome String?
+}
