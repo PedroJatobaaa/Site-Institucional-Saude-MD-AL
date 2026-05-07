@@ -25,15 +25,18 @@ model Coordenacao {
 }
 
 model Aviso {
-  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  titulo          String      @db.VarChar(255)
-  link_anexo      String?     @db.VarChar(255)
-  data_publicacao DateTime    @default(now())
-  ativo           Boolean     @default(true)
+  id              String      @id @default(uuid())
   
-  coordenacao_id  String      @db.Uuid
-  // Relacionamento: Esse aviso pertence a uma coordenação
-  coordenacao     Coordenacao @relation(fields: [coordenacao_id], references: [id], onDelete: Cascade)
+  titulo          String      @db.Text
+  descricao       String?     @db.Text
+  link_anexo      String?     @db.Text
+  
+  ativo           Boolean     @default(true)
+  data_publicacao DateTime    @default(now())
+  
+  // 👇 ADICIONE O @db.Uuid NESTA LINHA 👇
+  coordenacaoId   String?     @db.Uuid
+  coordenacao     Coordenacao? @relation(fields: [coordenacaoId], references: [id])
 
   @@map("avisos")
 }
@@ -62,6 +65,11 @@ model Usuario {
   email      String     @unique
   senha      String
   cargo      String
+  
+  // 👇 AS GAVETAS NOVAS AQUI 👇
+  cpf        String?
+  unidade    String?
+
   status     UserStatus @default(PENDENTE)
 
   // No PostgreSQL, o Prisma permite salvar uma lista de strings diretamente
@@ -85,3 +93,30 @@ model Documento {
   data_cadastro   DateTime @default(now())
   criado_por_nome String?
 }
+
+model Paciente {
+  id              Int           @id @default(autoincrement())
+  cpf             String?       @unique // <-- O '?' torna opcional
+  cns             String?       @unique // <-- O '?' torna opcional
+  nome            String        // Nome continua sem '?', pois é obrigatório
+  data_nascimento String?       // <-- opcional
+  idade           Int?          // <-- opcional
+  sexo            String?
+  registro_hc     String?       
+  prescricoes     Prescricao[]
+  createdAt       DateTime      @default(now())
+}
+
+model Prescricao {
+  id               Int      @id @default(autoincrement())
+  paciente         Paciente @relation(fields: [pacienteId], references: [id])
+  pacienteId       Int
+  setor            String
+  leito            String?
+  custo            String?
+  data_prescricao  DateTime @default(now())
+  itens            Json     // Vamos salvar a lista de medicamentos/dietas como um JSON para facilitar
+  medico_nome      String
+  status           String   @default("ATIVA") // ATIVA, ENCERRADA, CANCELADA
+}
+

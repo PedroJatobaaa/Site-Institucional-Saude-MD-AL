@@ -112,9 +112,11 @@ app.get('/api/carrossel', async (req, res) => {
 
 app.post('/api/auth/registrar', async (req, res): Promise<any> => {
   try {
-    const { nome, email, senha, cargo } = req.body;
+    // 1. Agora o backend também pega o CPF e a Unidade do corpo da requisição
+    const { nome, email, senha, cargo, cpf, unidade } = req.body;
+    
     if (!nome || !email || !senha || !cargo) {
-      return res.status(400).json({ erro: 'Todos os campos são obrigatórios.' });
+      return res.status(400).json({ erro: 'Campos principais são obrigatórios.' });
     }
 
     const usuarioExistente = await prisma.usuario.findUnique({ where: { email } });
@@ -123,11 +125,19 @@ app.post('/api/auth/registrar', async (req, res): Promise<any> => {
     const senhaCriptografada = await bcrypt.hash(senha, 10);
 
     const novoUsuario = await prisma.usuario.create({
-      data: { nome, email, senha: senhaCriptografada, cargo }
+      data: { 
+        nome, 
+        email, 
+        senha: senhaCriptografada, 
+        cargo,
+        cpf,       // Salvando no banco!
+        unidade    // Salvando no banco!
+      }
     });
 
     return res.status(201).json({ mensagem: 'Cadastro realizado! Aguarde aprovação.' });
   } catch (error) {
+    console.error(error);
     return res.status(500).json({ erro: 'Falha interna no servidor.' });
   }
 });
@@ -165,7 +175,18 @@ app.get('/api/admin/usuarios', verificarToken, async (req: any, res: any): Promi
     if (!req.usuario.permissoes.includes('admin')) return res.status(403).json({ erro: 'Acesso negado.' });
 
     const usuarios = await prisma.usuario.findMany({
-      select: { id: true, nome: true, email: true, cargo: true, status: true, permissoes: true, createdAt: true },
+      // 2. Liberando o CPF e a Unidade para aparecerem na lista do frontend!
+      select: { 
+        id: true, 
+        nome: true, 
+        email: true, 
+        cargo: true, 
+        cpf: true,       // Agora vai!
+        unidade: true,   // Agora vai!
+        status: true, 
+        permissoes: true, 
+        createdAt: true 
+      },
       orderBy: { createdAt: 'desc' }
     });
     return res.status(200).json(usuarios);
@@ -192,13 +213,14 @@ app.put('/api/admin/usuarios/:id', verificarToken, async (req: any, res: any): P
   }
 });
 
-// ---------------------------------------------------------
+/// ---------------------------------------------------------
 // ROTAS DO MURAL DE AVISOS
 // ---------------------------------------------------------
 
+// 1. CRIAR AVISO (Agora com Descrição)
 app.post('/api/avisos', verificarToken, async (req: any, res: any): Promise<any> => {
   try {
-    const { titulo, link_anexo, coordenacaoId } = req.body;
+    const { titulo, descricao, link_anexo, coordenacaoId } = req.body;
     const { permissoes } = req.usuario;
 
     if (!permissoes.includes('mural_avisos') && !permissoes.includes('admin')) {
@@ -208,6 +230,7 @@ app.post('/api/avisos', verificarToken, async (req: any, res: any): Promise<any>
     const novoAviso = await prisma.aviso.create({
       data: {
         titulo,
+        descricao, // Salvando a descrição no banco
         link_anexo: link_anexo || null,
         coordenacao: { connect: { id: coordenacaoId } }
       }
@@ -215,10 +238,12 @@ app.post('/api/avisos', verificarToken, async (req: any, res: any): Promise<any>
 
     return res.status(201).json({ mensagem: 'Aviso publicado!', aviso: novoAviso });
   } catch (error) {
+    console.error("Erro ao criar aviso:", error);
     return res.status(500).json({ erro: 'Erro ao criar aviso.' });
   }
 });
 
+// 2. APAGAR AVISO
 app.delete('/api/avisos/:id', verificarToken, async (req: any, res: any): Promise<any> => {
   try {
     const { id } = req.params;
@@ -235,6 +260,7 @@ app.delete('/api/avisos/:id', verificarToken, async (req: any, res: any): Promis
   }
 });
 
+// 3. BUSCAR AVISOS (Provavelmente esta rota havia sumido)
 app.get('/api/avisos', async (req: any, res: any): Promise<any> => {
   try {
     const avisos = await prisma.aviso.findMany({
@@ -321,6 +347,174 @@ app.delete('/api/documentos/:id', verificarToken, async (req: any, res: any): Pr
     return res.status(200).json({ mensagem: 'Arquivo excluído!' });
   } catch (error) {
     return res.status(500).json({ erro: 'Erro ao deletar arquivo.' });
+  }
+});
+
+// ---------------------------------------------------------
+// ROTAS DO MÓDULO UPA (URGÊNCIA E EMERGÊNCIA)
+// ---------------------------------------------------------
+
+// 1. BUSCAR PACIENTE (Motor da barra de pesquisa inteligente)
+app.get('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promise<any> => {
+  console.log(`\n🔍 [UPA] Requisição recebida. Buscando por: "${req.query.q}"`);
+  
+  try {
+    // 1. Verifica se o usuário chegou da catraca (verificarToken)
+    if (!req.usuario) {
+      console.log("❌ ERRO: req.usuario está indefinido. O verificarToken falhou silenciosamente.");
+      return res.status(403).json({ erro: 'Usuário não autenticado.' });
+    }
+
+    const { permissoes } = req.usuario;
+    if (!permissoes || (!permissoes.includes('upa_acesso') && !permissoes.includes('admin'))) {
+      console.log("❌ ERRO: Usuário sem permissão 'upa_acesso'.");
+      return res.status(403).json({ erro: 'Sem permissão.' });
+    }
+
+    const termoBusca = req.query.q as string;
+    if (!termoBusca || termoBusca.length < 3) {
+      console.log("⚠️ Termo muito curto, cancelando busca.");
+      return res.status(200).json([]); 
+    }
+
+    console.log("⏳ Consultando o banco de dados Prisma...");
+    
+    const pacientes = await prisma.paciente.findMany({
+      where: {
+        OR: [
+          { nome: { contains: termoBusca, mode: 'insensitive' } },
+          { cpf: { contains: termoBusca } },
+          { cns: { contains: termoBusca } }
+        ]
+      },
+      take: 15
+    });
+
+    console.log(`✅ Sucesso! O banco encontrou ${pacientes.length} pacientes.`);
+    return res.status(200).json(pacientes);
+
+  } catch (error) {
+    console.error("❌ ERRO GRAVE NA ROTA DE BUSCA:", error);
+    return res.status(500).json({ erro: 'Falha interna na busca.' });
+  }
+});
+
+// 2. CADASTRAR NOVO PACIENTE (Caso não exista nos 60 mil da planilha)
+app.post('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promise<any> => {
+  try {
+    const { permissoes } = req.usuario;
+    if (!permissoes.includes('upa_acesso') && !permissoes.includes('admin')) {
+      return res.status(403).json({ erro: 'Sem permissão para cadastrar pacientes.' });
+    }
+
+    // <- NOVO: Adicionado o cns na desestruturação
+    const { cpf, cns, nome, data_nascimento, idade, sexo, registro_hc } = req.body;
+
+    // Como o CPF agora pode ser nulo na planilha, exigimos pelo menos o Nome.
+    if (!nome) {
+      return res.status(400).json({ erro: 'O nome do paciente é obrigatório.' });
+    }
+
+    // Trava de segurança: Evitar CPFs duplicados (só checa se o médico tiver digitado um)
+    if (cpf) {
+      const pacienteExistente = await prisma.paciente.findUnique({ where: { cpf } });
+      if (pacienteExistente) {
+        return res.status(400).json({ erro: 'Este CPF já está cadastrado no sistema.' });
+      }
+    }
+
+    // Trava de segurança: Evitar CNS duplicados
+    if (cns) {
+      const cnsExistente = await prisma.paciente.findUnique({ where: { cns } });
+      if (cnsExistente) {
+        return res.status(400).json({ erro: 'Este CNS já está cadastrado no sistema.' });
+      }
+    }
+
+    const novoPaciente = await prisma.paciente.create({
+      data: { 
+        cpf: cpf || null, // Se vier vazio do front, salva como null no banco
+        cns: cns || null,
+        nome, 
+        data_nascimento: data_nascimento || null, 
+        idade: idade ? Number(idade) : null, 
+        sexo: sexo || null, 
+        registro_hc: registro_hc || null 
+      }
+    });
+
+    return res.status(201).json(novoPaciente);
+  } catch (error) {
+    console.error("❌ ERRO AO CADASTRAR PACIENTE:", error);
+    return res.status(500).json({ erro: 'Falha ao salvar o cadastro.' });
+  }
+});
+
+// 3. SALVAR PRESCRIÇÃO MÉDICA (Guardar o histórico do que foi receitado)
+app.post('/api/upa/prescricoes', verificarToken, async (req: any, res: any): Promise<any> => {
+  try {
+    const { nome: medico_nome, permissoes } = req.usuario;
+    if (!permissoes.includes('upa_acesso') && !permissoes.includes('admin')) {
+      return res.status(403).json({ erro: 'Sem permissão para emitir prescrições.' });
+    }
+
+    const { pacienteId, setor, leito, custo, itens } = req.body;
+
+    if (!pacienteId || !itens) {
+      return res.status(400).json({ erro: 'Paciente e itens da prescrição são obrigatórios.' });
+    }
+
+    const novaPrescricao = await prisma.prescricao.create({
+      data: {
+        pacienteId: Number(pacienteId),
+        setor: setor || '',
+        leito: leito || '',
+        custo: custo || '',
+        itens, // O Prisma já lida com o formato JSON automaticamente
+        medico_nome
+      }
+    });
+
+    return res.status(201).json({ mensagem: 'Receituário registrado no banco de dados!', prescricao: novaPrescricao });
+  } catch (error) {
+    console.error("❌ ERRO AO SALVAR PRESCRIÇÃO:", error);
+    return res.status(500).json({ erro: 'Falha ao arquivar a prescrição.' });
+  }
+});
+
+// 3. EDITAR PACIENTE EXISTENTE (Para completar CPF/CNS faltantes)
+app.patch('/api/upa/pacientes/:id', verificarToken, async (req: any, res: any): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { cpf, cns, nome, data_nascimento } = req.body;
+
+    // Limpeza básica dos dados
+    const cpfLimpo = cpf ? cpf.replace(/\D/g, '') : null;
+    const cnsLimpo = cns ? cns.replace(/\D/g, '') : null;
+
+    // Validação de duplicidade: Se o médico estiver adicionando um CPF, 
+    // checamos se esse CPF já não pertence a OUTRA pessoa no banco.
+    if (cpfLimpo) {
+      const conflito = await prisma.paciente.findFirst({
+        where: { cpf: cpfLimpo, NOT: { id: Number(id) } }
+      });
+      if (conflito) return res.status(400).json({ erro: 'Este CPF já pertence a outro paciente.' });
+    }
+
+    const pacienteAtualizado = await prisma.paciente.update({
+      where: { id: Number(id) },
+      data: {
+        cpf: cpfLimpo,
+        cns: cnsLimpo,
+        nome: nome?.toUpperCase().trim(),
+        data_nascimento
+      }
+    });
+
+    return res.status(200).json(pacienteAtualizado);
+  } catch (error) {
+    console.error("❌ ERRO AO ATUALIZAR PACIENTE:", error);
+    return res.status(500).json({ erro: 'Falha ao atualizar dados do paciente.' });
   }
 });
 
