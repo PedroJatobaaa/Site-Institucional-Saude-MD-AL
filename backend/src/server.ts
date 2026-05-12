@@ -112,7 +112,6 @@ app.get('/api/carrossel', async (req, res) => {
 
 app.post('/api/auth/registrar', async (req, res): Promise<any> => {
   try {
-    // 1. Agora o backend também pega o CPF e a Unidade do corpo da requisição
     const { nome, email, senha, cargo, cpf, unidade } = req.body;
     
     if (!nome || !email || !senha || !cargo) {
@@ -130,8 +129,8 @@ app.post('/api/auth/registrar', async (req, res): Promise<any> => {
         email, 
         senha: senhaCriptografada, 
         cargo,
-        cpf,       // Salvando no banco!
-        unidade    // Salvando no banco!
+        cpf,       
+        unidade    
       }
     });
 
@@ -154,6 +153,23 @@ app.post('/api/auth/login', async (req, res): Promise<any> => {
     if (usuario.status === 'PENDENTE') return res.status(403).json({ erro: 'Conta em análise.' });
     if (usuario.status === 'BLOQUEADO') return res.status(403).json({ erro: 'Conta bloqueada.' });
 
+    // 👇 NOVA TRAVA: Verifica se a administração exigiu troca de senha
+    if (usuario.precisa_redefinir_senha) {
+      // Gera um token temporário (só vale por 10 minutos) apenas para autorizar a troca de senha
+      const tokenTemporario = jwt.sign(
+        { id: usuario.id, email: usuario.email },
+        process.env.JWT_SECRET || 'segredo_fallback',
+        { expiresIn: '10m' }
+      );
+      
+      return res.status(200).json({ 
+        precisa_redefinir_senha: true, 
+        mensagem: 'Atualização de segurança obrigatória.',
+        token: tokenTemporario // Manda pro front para ele usar na rota de redefinir
+      });
+    }
+
+    // Se estiver tudo ok, faz o login normal
     const token = jwt.sign(
       { id: usuario.id, nome: usuario.nome, cargo: usuario.cargo, permissoes: usuario.permissoes },
       process.env.JWT_SECRET || 'segredo_fallback',
@@ -166,6 +182,33 @@ app.post('/api/auth/login', async (req, res): Promise<any> => {
   }
 });
 
+// 👇 NOVA ROTA: Salvar a nova senha criada pelo próprio usuário
+app.post('/api/auth/redefinir-senha', verificarToken, async (req: any, res: any): Promise<any> => {
+  try {
+    const { email, novaSenha } = req.body;
+    
+    // O verificarToken garante que só quem tem o token temporário chega aqui
+    if (req.usuario.email !== email) {
+      return res.status(403).json({ erro: 'Tentativa de alteração inválida.' });
+    }
+
+    const senhaCriptografada = await bcrypt.hash(novaSenha, 10);
+
+    await prisma.usuario.update({
+      where: { email },
+      data: { 
+        senha: senhaCriptografada,
+        precisa_redefinir_senha: false // Baixa a bandeira vermelha!
+      }
+    });
+
+    return res.status(200).json({ mensagem: 'Senha atualizada com sucesso!' });
+  } catch (error) {
+    console.error("Erro ao redefinir senha:", error);
+    return res.status(500).json({ erro: 'Falha ao atualizar a senha.' });
+  }
+});
+
 // ---------------------------------------------------------
 // ROTAS DE ADMINISTRAÇÃO (GESTÃO DE USUÁRIOS)
 // ---------------------------------------------------------
@@ -175,14 +218,13 @@ app.get('/api/admin/usuarios', verificarToken, async (req: any, res: any): Promi
     if (!req.usuario.permissoes.includes('admin')) return res.status(403).json({ erro: 'Acesso negado.' });
 
     const usuarios = await prisma.usuario.findMany({
-      // 2. Liberando o CPF e a Unidade para aparecerem na lista do frontend!
       select: { 
         id: true, 
         nome: true, 
         email: true, 
         cargo: true, 
-        cpf: true,       // Agora vai!
-        unidade: true,   // Agora vai!
+        cpf: true,      
+        unidade: true,  
         status: true, 
         permissoes: true, 
         createdAt: true 
@@ -213,6 +255,32 @@ app.put('/api/admin/usuarios/:id', verificarToken, async (req: any, res: any): P
   }
 });
 
+// 👇 NOVA ROTA ADMIN: Levantar a bandeira vermelha
+// 👇 NOVA ROTA ADMIN: Levantar a bandeira vermelha E definir Senha Padrão
+app.post('/api/admin/usuarios/:id/forcar-senha', verificarToken, async (req: any, res: any): Promise<any> => {
+  try {
+    if (!req.usuario.permissoes.includes('admin')) return res.status(403).json({ erro: 'Acesso negado.' });
+    const { id } = req.params;
+
+    // 1. Define a senha padrão do sistema
+    const senhaPadrao = "Saude@123";
+    const senhaCriptografada = await bcrypt.hash(senhaPadrao, 10);
+
+    // 2. Atualiza o banco substituindo a senha antiga pela padrão e levantando a bandeira
+    await prisma.usuario.update({
+      where: { id },
+      data: { 
+        senha: senhaCriptografada,
+        precisa_redefinir_senha: true 
+      }
+    });
+
+    return res.status(200).json({ mensagem: 'Senha resetada para o padrão.' });
+  } catch (error) {
+    console.error("Erro ao forçar redefinição:", error);
+    return res.status(500).json({ erro: 'Falha ao processar solicitação.' });
+  }
+});
 /// ---------------------------------------------------------
 // ROTAS DO MURAL DE AVISOS
 // ---------------------------------------------------------
@@ -359,7 +427,6 @@ app.get('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promis
   console.log(`\n🔍 [UPA] Requisição recebida. Buscando por: "${req.query.q}"`);
   
   try {
-    // 1. Verifica se o usuário chegou da catraca (verificarToken)
     if (!req.usuario) {
       console.log("❌ ERRO: req.usuario está indefinido. O verificarToken falhou silenciosamente.");
       return res.status(403).json({ erro: 'Usuário não autenticado.' });
@@ -399,7 +466,7 @@ app.get('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promis
   }
 });
 
-// 2. CADASTRAR NOVO PACIENTE (Caso não exista nos 60 mil da planilha)
+// 2. CADASTRAR NOVO PACIENTE
 app.post('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promise<any> => {
   try {
     const { permissoes } = req.usuario;
@@ -407,15 +474,12 @@ app.post('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promi
       return res.status(403).json({ erro: 'Sem permissão para cadastrar pacientes.' });
     }
 
-    // <- NOVO: Adicionado o cns na desestruturação
     const { cpf, cns, nome, data_nascimento, idade, sexo, registro_hc } = req.body;
 
-    // Como o CPF agora pode ser nulo na planilha, exigimos pelo menos o Nome.
     if (!nome) {
       return res.status(400).json({ erro: 'O nome do paciente é obrigatório.' });
     }
 
-    // Trava de segurança: Evitar CPFs duplicados (só checa se o médico tiver digitado um)
     if (cpf) {
       const pacienteExistente = await prisma.paciente.findUnique({ where: { cpf } });
       if (pacienteExistente) {
@@ -423,7 +487,6 @@ app.post('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promi
       }
     }
 
-    // Trava de segurança: Evitar CNS duplicados
     if (cns) {
       const cnsExistente = await prisma.paciente.findUnique({ where: { cns } });
       if (cnsExistente) {
@@ -433,7 +496,7 @@ app.post('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promi
 
     const novoPaciente = await prisma.paciente.create({
       data: { 
-        cpf: cpf || null, // Se vier vazio do front, salva como null no banco
+        cpf: cpf || null, 
         cns: cns || null,
         nome, 
         data_nascimento: data_nascimento || null, 
@@ -450,7 +513,47 @@ app.post('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promi
   }
 });
 
-// 3. SALVAR PRESCRIÇÃO MÉDICA (Guardar o histórico do que foi receitado)
+// 3. EDITAR PACIENTE EXISTENTE (Com suporte ao campo registro_hc)
+app.patch('/api/upa/pacientes/:id', verificarToken, async (req: any, res: any): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { cpf, cns, nome, data_nascimento, registro_hc } = req.body;
+
+    // Se o frontend enviar com máscara (ex: 123.456.789-10), limpamos antes de salvar. 
+    // Mas se o seu frontend envia com a máscara pq você quer manter assim, pode remover esse .replace
+    const cpfLimpo = cpf; 
+    const cnsLimpo = cns;
+
+    if (cpfLimpo) {
+      const conflito = await prisma.paciente.findFirst({
+        where: { cpf: cpfLimpo, NOT: { id: Number(id) } }
+      });
+      if (conflito) return res.status(400).json({ erro: 'Este CPF já pertence a outro paciente.' });
+    }
+
+    const pacienteAtualizado = await prisma.paciente.update({
+      where: { id: Number(id) },
+      data: {
+        cpf: cpfLimpo,
+        cns: cnsLimpo,
+        nome: nome?.toUpperCase().trim(),
+        data_nascimento,
+        registro_hc // Adicionado para permitir editar o prontuário
+      }
+    });
+
+    return res.status(200).json(pacienteAtualizado);
+  } catch (error) {
+    console.error("❌ ERRO AO ATUALIZAR PACIENTE:", error);
+    return res.status(500).json({ erro: 'Falha ao atualizar dados do paciente.' });
+  }
+});
+
+// ========================================================
+// NOVO BLOCO: PRESCRIÇÕES (HISTÓRICO / LINHA DO TEMPO)
+// ========================================================
+
+// 4. SALVAR PRESCRIÇÃO MÉDICA NO BANCO
 app.post('/api/upa/prescricoes', verificarToken, async (req: any, res: any): Promise<any> => {
   try {
     const { nome: medico_nome, permissoes } = req.usuario;
@@ -466,55 +569,48 @@ app.post('/api/upa/prescricoes', verificarToken, async (req: any, res: any): Pro
 
     const novaPrescricao = await prisma.prescricao.create({
       data: {
-        pacienteId: Number(pacienteId),
+        pacienteId: Number(pacienteId), // Transformando em Int pq o banco exige
         setor: setor || '',
         leito: leito || '',
         custo: custo || '',
-        itens, // O Prisma já lida com o formato JSON automaticamente
+        itens, // Prisma salva o Array/JSON
         medico_nome
       }
     });
 
-    return res.status(201).json({ mensagem: 'Receituário registrado no banco de dados!', prescricao: novaPrescricao });
+    // Como o front espera uma data legível (10/10/2026 14:00:00), formatamos antes de devolver
+    const prescricaoFormatada = {
+      ...novaPrescricao,
+      data_hora: new Date(novaPrescricao.data_prescricao).toLocaleString('pt-BR')
+    };
+
+    return res.status(201).json(prescricaoFormatada);
   } catch (error) {
     console.error("❌ ERRO AO SALVAR PRESCRIÇÃO:", error);
     return res.status(500).json({ erro: 'Falha ao arquivar a prescrição.' });
   }
 });
 
-// 3. EDITAR PACIENTE EXISTENTE (Para completar CPF/CNS faltantes)
-app.patch('/api/upa/pacientes/:id', verificarToken, async (req: any, res: any): Promise<any> => {
+// 5. BUSCAR O HISTÓRICO DE PRESCRIÇÕES DO PACIENTE (Para a Linha do Tempo)
+app.get('/api/upa/pacientes/:id/prescricoes', verificarToken, async (req: any, res: any): Promise<any> => {
   try {
     const { id } = req.params;
-    const { cpf, cns, nome, data_nascimento } = req.body;
 
-    // Limpeza básica dos dados
-    const cpfLimpo = cpf ? cpf.replace(/\D/g, '') : null;
-    const cnsLimpo = cns ? cns.replace(/\D/g, '') : null;
-
-    // Validação de duplicidade: Se o médico estiver adicionando um CPF, 
-    // checamos se esse CPF já não pertence a OUTRA pessoa no banco.
-    if (cpfLimpo) {
-      const conflito = await prisma.paciente.findFirst({
-        where: { cpf: cpfLimpo, NOT: { id: Number(id) } }
-      });
-      if (conflito) return res.status(400).json({ erro: 'Este CPF já pertence a outro paciente.' });
-    }
-
-    const pacienteAtualizado = await prisma.paciente.update({
-      where: { id: Number(id) },
-      data: {
-        cpf: cpfLimpo,
-        cns: cnsLimpo,
-        nome: nome?.toUpperCase().trim(),
-        data_nascimento
-      }
+    const prescricoes = await prisma.prescricao.findMany({
+      where: { pacienteId: Number(id) },
+      orderBy: { data_prescricao: 'desc' } // Traz a mais recente primeiro
     });
 
-    return res.status(200).json(pacienteAtualizado);
+    // Formata a data para a Linha do Tempo no frontend
+    const historicoFormatado = prescricoes.map(p => ({
+      ...p,
+      data_hora: new Date(p.data_prescricao).toLocaleString('pt-BR')
+    }));
+
+    return res.status(200).json(historicoFormatado);
   } catch (error) {
-    console.error("❌ ERRO AO ATUALIZAR PACIENTE:", error);
-    return res.status(500).json({ erro: 'Falha ao atualizar dados do paciente.' });
+    console.error("❌ ERRO AO BUSCAR HISTÓRICO DE PRESCRIÇÕES:", error);
+    return res.status(500).json({ erro: 'Falha ao carregar o histórico.' });
   }
 });
 

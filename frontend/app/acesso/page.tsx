@@ -172,9 +172,8 @@ export default function SolicitarAcesso() {
                     >
                       <option value="">Selecione a Unidade...</option>
                       <option value="UPA Marechal Deodoro">UPA Marechal Deodoro</option>
-                      <option value="Hospital Municipal">Hospital Municipal</option>
                       <option value="Secretaria de Saúde">Secretaria de Saúde</option>
-                      <option value="Atenção Básica (PSF)">Atenção Básica (PSF)</option>
+                      <option value="Atenção Básica (PSF)">Atenção Básica (UBS)</option>
                     </select>
                   </div>
                 </div>
@@ -204,7 +203,7 @@ export default function SolicitarAcesso() {
                     required type="email" name="email" 
                     value={formData.email} onChange={handleMudanca}
                     className="w-full p-3 pl-10 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all" 
-                    placeholder="seu.nome@saude.gov.br" 
+                    placeholder="seuemail@email.com" 
                   />
                 </div>
               </div>

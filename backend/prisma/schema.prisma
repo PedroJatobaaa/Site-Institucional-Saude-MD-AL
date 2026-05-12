@@ -78,6 +78,7 @@ model Usuario {
 
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
+  precisa_redefinir_senha Boolean @default(false)
 
   @@map("usuarios")
 }
@@ -108,15 +109,21 @@ model Paciente {
 }
 
 model Prescricao {
-  id               Int      @id @default(autoincrement())
+  id               Int      @id @default(autoincrement()) 
   paciente         Paciente @relation(fields: [pacienteId], references: [id])
-  pacienteId       Int
+  pacienteId       Int      // Voltamos para Int, igual ao ID do Paciente!
+  
   setor            String
   leito            String?
   custo            String?
+  
   data_prescricao  DateTime @default(now())
-  itens            Json     // Vamos salvar a lista de medicamentos/dietas como um JSON para facilitar
-  medico_nome      String
-  status           String   @default("ATIVA") // ATIVA, ENCERRADA, CANCELADA
-}
+  
+  // Aqui salvaremos a lista de remédios/horários que vêm do frontend
+  itens            Json     
+  
+  medico_nome      String?  
+  status           String   @default("ATIVA") 
 
+  @@map("prescricoes")
+}

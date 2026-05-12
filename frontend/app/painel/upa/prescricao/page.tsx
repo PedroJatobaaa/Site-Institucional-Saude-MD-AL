@@ -3,7 +3,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useReactToPrint } from 'react-to-print';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Printer, Plus, Trash2, Search, UserPlus, X, CheckCircle2, Edit3, Save } from 'lucide-react';
+import { 
+  ArrowLeft, Printer, Plus, Trash2, Search, UserPlus, X, 
+  CheckCircle2, Edit3, Save, History, Clock, ChevronDown, 
+  ChevronUp, Copy, Zap 
+} from 'lucide-react';
 import Link from 'next/link';
 import { ReceitaPDF } from './ReceitaPDF';
 
@@ -24,57 +28,106 @@ export default function NovaPrescricao() {
   // Estados da Prescrição
   const [setor, setSetor] = useState('');
   const [leito, setLeito] = useState('');
-  const [custo, setCusto] = useState(''); // NOVO: Campo de Custo
+  const [custo, setCusto] = useState(''); 
   const [itens, setItens] = useState([
-    { id: Date.now(), tipo: 'MEDICAMENTO', descricao: '', horario: '', dev: '' } // DEV incluído
+    { id: Date.now(), tipo: 'MEDICAMENTO', descricao: '', horario: '', dev: '' }
   ]);
 
-  // Função para aplicar a máscara de CPF (000.000.000-00)
+  // Estados: Histórico (Linha do Tempo)
+  const [historico, setHistorico] = useState<any[]>([]);
+  const [idExpandido, setIdExpandido] = useState<number | null>(null);
+
+  // ==========================================
+  // PROTOCOLOS RÁPIDOS (KITS PRESCRIÇÃO)
+  // ==========================================
+  const protocolos = {
+    padrao: [
+      { dev: 'EV', descricao: 'DIPIRONA 500MG/ML, 02ML + AD', horario: '6/6 HORAS' },
+      { dev: 'EV', descricao: 'TRAMAL 50MG/ML + 100ML DE SF (LENTO)', horario: '8/8 HORAS (SOS)' },
+      { dev: 'EV', descricao: 'BROMOPRIDA 01 AMP + AD', horario: '8/8 HORAS (SOS)' },
+      { dev: 'VO', descricao: 'CAPTOPRIL 25MG 01 CP SE PA ≥ 160x110 mmHg', horario: '8/8 HORAS' },
+      { dev: 'SC', descricao: 'INSULINA REGULAR - ESQUEMA: 200-250 (4UI) | 251-300 (6UI) | 301-350 (8UI) | 351-400 (10UI) | >400 (12UI)', horario: 'S/N' },
+      { dev: 'EV', descricao: 'GLICOSE 50%, 03 AMP (BOLUS) SE HGT ≤ 70MG/DL', horario: 'S/N' },
+      { dev: 'EV', descricao: 'OMEPRAZOL 40MG', horario: '24/24 HORAS' },
+      { dev: '-',  descricao: 'ELEVAR CABECEIRA 30°', horario: 'CONTÍNUO' },
+      { dev: '-',  descricao: 'MUDAR DECÚBITO', horario: '2/2 HORAS' },
+      { dev: '-',  descricao: 'SINAIS VITAIS E CUIDADOS GERAIS', horario: '6/6 HORAS' },
+      { dev: '-',  descricao: 'FISIOTERAPIA', horario: 'SESSÕES' }
+    ]
+  };
+
+  const aplicarProtocolo = (chave: keyof typeof protocolos) => {
+    const itensDoProtocolo = protocolos[chave].map((item, index) => ({
+      id: Date.now() + index,
+      tipo: 'MEDICAMENTO',
+      descricao: item.descricao,
+      horario: item.horario,
+      dev: item.dev
+    }));
+
+    if (itens.length === 1 && itens[0].descricao === '') {
+      setItens(itensDoProtocolo);
+    } else {
+      setItens([...itens, ...itensDoProtocolo]);
+    }
+  };
+
+  // Função para aplicar a máscara de CPF
   const mascaraCPF = (valor: string) => {
-    let v = valor.replace(/\D/g, ""); // Remove tudo o que não é dígito
-    if (v.length > 11) v = v.substring(0, 11); // Limita a 11 números
-    
-    // Coloca os pontos e o traço
+    let v = valor.replace(/\D/g, "");
+    if (v.length > 11) v = v.substring(0, 11);
     v = v.replace(/(\d{3})(\d)/, "$1.$2");
     v = v.replace(/(\d{3})(\d)/, "$1.$2");
     v = v.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
-    
     return v;
   };
 
-  // Motor de Impressão PDF
   const contentRef = useRef<HTMLDivElement>(null);
-  
   const gerarPDF = useReactToPrint({
     contentRef,
     documentTitle: `Prescricao_${pacienteSelecionado?.nome || 'Paciente'}`,
   });
 
-  const handlePrint = () => {
-    // 1. Verifica se tem paciente selecionado
+  const handlePrint = async () => {
     if (!pacienteSelecionado) {
       alert("Por favor, selecione ou cadastre um paciente antes de gerar o PDF.");
       return;
     }
-
-    // 2. NOVA TRAVA: Verifica se o paciente tem CPF
     if (!pacienteSelecionado.cpf || pacienteSelecionado.cpf.trim() === '') {
       alert(" ATENÇÃO: É obrigatório informar o CPF do paciente para gerar a prescrição.");
-      setEditando(true); // Já abre os campos para o médico digitar o CPF!
+      setEditando(true);
       return;
     }
 
-    // 3. Se passou pelas duas travas, gera o PDF
+    try {
+      const token = localStorage.getItem('saude_token');
+      const res = await fetch('http://localhost:3333/api/upa/prescricoes', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          pacienteId: pacienteSelecionado.id,
+          setor, leito, custo, itens
+        })
+      });
+
+      if (res.ok) {
+        const dados = await res.json();
+        setHistorico([dados, ...historico]);
+      }
+    } catch (error) {
+      console.error("Erro de conexão ao salvar prescrição:", error);
+    }
     gerarPDF();
   };
 
-  // 1. Efeito de Busca Inteligente
   useEffect(() => {
     if (busca.length < 3) {
       setResultadosBusca([]);
       return;
     }
-
     const timer = setTimeout(async () => {
       try {
         const token = localStorage.getItem('saude_token');
@@ -84,22 +137,32 @@ export default function NovaPrescricao() {
         const dados = await res.json();
         if (Array.isArray(dados)) setResultadosBusca(dados);
       } catch (error) {
-        console.error("Erro ao buscar pacientes", error);
+        console.error("Erro ao buscar pacientes:", error);
       }
     }, 500);
-
     return () => clearTimeout(timer);
   }, [busca]);
 
-  // 2. Selecionar Paciente
-  const selecionarPaciente = (paciente: any) => {
+  const selecionarPaciente = async (paciente: any) => {
     setPacienteSelecionado(paciente);
     setBusca('');
     setResultadosBusca([]);
     setEditando(false);
+    setHistorico([]);
+    try {
+      const token = localStorage.getItem('saude_token');
+      const res = await fetch(`http://localhost:3333/api/upa/pacientes/${paciente.id}/prescricoes`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const dados = await res.json();
+        setHistorico(dados);
+      }
+    } catch (error) {
+      console.error("Erro ao buscar histórico:", error);
+    }
   };
 
-  // 3. Salvar Edição do Paciente
   const salvarEdicaoPaciente = async () => {
     try {
       const token = localStorage.getItem('saude_token');
@@ -114,30 +177,24 @@ export default function NovaPrescricao() {
           cpf: pacienteSelecionado.cpf,
           cns: pacienteSelecionado.cns,
           data_nascimento: pacienteSelecionado.data_nascimento,
-          registro_hc: pacienteSelecionado.registro_hc // Incluído na edição
+          registro_hc: pacienteSelecionado.registro_hc
         })
       });
-
       const dados = await res.json();
-
       if (res.ok) {
         setPacienteSelecionado(dados);
         setEditando(false);
-        alert("Dados atualizados com sucesso!");
-      } else {
-        alert(dados.erro || "Erro ao atualizar.");
+        alert("Dados atualizados!");
       }
     } catch (error) {
       alert("Erro ao conectar com o servidor.");
     }
   };
 
-  // 4. Cadastrar Novo Paciente
   const handleCadastrarPaciente = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoadingCadastro(true);
     const token = localStorage.getItem('saude_token');
-
     try {
       const res = await fetch('http://localhost:3333/api/upa/pacientes', {
         method: 'POST',
@@ -147,28 +204,35 @@ export default function NovaPrescricao() {
         },
         body: JSON.stringify(novoPaciente)
       });
-
       const dados = await res.json();
-
       if (res.ok) {
         setPacienteSelecionado(dados);
         setModalAberto(false);
         setNovoPaciente({ cpf: '', nome: '', data_nascimento: '', sexo: '', registro_hc: '' });
-      } else {
-        alert(dados.erro || "Erro ao cadastrar.");
       }
-    } catch (error) {
-      alert("Erro de conexão com o servidor.");
     } finally {
       setLoadingCadastro(false);
     }
   };
 
-  // Funções da Tabela
   const adicionarLinha = () => setItens([...itens, { id: Date.now(), tipo: 'MEDICAMENTO', descricao: '', horario: '', dev: '' }]);
   const removerLinha = (id: number) => { if (itens.length > 1) setItens(itens.filter(item => item.id !== id)); };
   const atualizarItem = (id: number, campo: string, valor: string) => {
     setItens(itens.map(item => item.id === id ? { ...item, [campo]: valor } : item));
+  };
+
+  const duplicarPrescricaoAnterior = (prescricaoAntiga: any) => {
+    if(window.confirm('Deseja carregar esta prescrição?')) {
+      setSetor(prescricaoAntiga.setor || '');
+      setLeito(prescricaoAntiga.leito || '');
+      setCusto(prescricaoAntiga.custo || '');
+      const itensCopiados = prescricaoAntiga.itens.map((item: any, index: number) => ({
+        ...item, id: Date.now() + index 
+      }));
+      setItens(itensCopiados);
+      // Rola a tela de volta para cima onde está a tabela agora
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   return (
@@ -323,44 +387,57 @@ export default function NovaPrescricao() {
             </div>
           )}
 
-          {/* Dados Adicionais da Receita (Setor, Leito, Custo) */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-slate-50">
-             <div>
-               <label className="block text-[10px] font-bold text-slate-400 uppercase">Setor</label>
-               <input 
-                 type="text" 
-                 value={setor} onChange={(e) => setSetor(e.target.value)}
-                 className="w-full border-b border-slate-200 py-1 outline-none focus:border-rose-500 font-medium" 
-                 placeholder="Ex: Emergência" 
-               />
-             </div>
-             <div>
-               <label className="block text-[10px] font-bold text-slate-400 uppercase">Leito</label>
-               <input 
-                 type="text" 
-                 value={leito} onChange={(e) => setLeito(e.target.value)}
-                 className="w-full border-b border-slate-200 py-1 outline-none focus:border-rose-500 font-medium" 
-                 placeholder="Ex: 04" 
-               />
-             </div>
-             <div>
-               <label className="block text-[10px] font-bold text-slate-400 uppercase">Custo</label>
-               <input 
-                 type="text" 
-                 value={custo} onChange={(e) => setCusto(e.target.value)}
-                 className="w-full border-b border-slate-200 py-1 outline-none focus:border-rose-500 font-medium" 
-                 placeholder="Ex: Operacional" 
-               />
-             </div>
-             <div>
-               <label className="block text-[10px] font-bold text-slate-400 uppercase">Data</label>
-               <div className="py-1 font-medium text-slate-700">{new Date().toLocaleDateString('pt-BR')}</div>
-             </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">Setor</label>
+                <input 
+                  type="text" 
+                  value={setor} onChange={(e) => setSetor(e.target.value)}
+                  className="w-full border-b border-slate-200 py-1 outline-none focus:border-rose-500 font-medium bg-transparent" 
+                  placeholder="Ex: Emergência" 
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">Leito</label>
+                <input 
+                  type="text" 
+                  value={leito} onChange={(e) => setLeito(e.target.value)}
+                  className="w-full border-b border-slate-200 py-1 outline-none focus:border-rose-500 font-medium bg-transparent" 
+                  placeholder="Ex: 04" 
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">Custo</label>
+                <input 
+                  type="text" 
+                  value={custo} onChange={(e) => setCusto(e.target.value)}
+                  className="w-full border-b border-slate-200 py-1 outline-none focus:border-rose-500 font-medium bg-transparent" 
+                  placeholder="Ex: Operacional" 
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">Data</label>
+                <div className="py-1 font-medium text-slate-700">{new Date().toLocaleDateString('pt-BR')}</div>
+              </div>
           </div>
         </div>
 
-        {/* CORPO DA PRESCRIÇÃO */}
+        {/* CORPO DA PRESCRIÇÃO ATUAL (AGORA FICA AQUI EM CIMA) */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          
+          {/* 👇 BARRA DE PROTOCOLOS RÁPIDOS 👇 */}
+          <div className="bg-blue-50/50 border-b border-blue-100 p-3 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-1">
+              <Zap size={14} /> Prescrições Padrão
+            </span>
+            <button 
+              onClick={() => aplicarProtocolo('padrao')}
+              className="text-xs font-bold bg-white border border-blue-200 text-blue-700 px-4 py-2 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm flex items-center gap-2"
+            >
+              <Plus size={14} /> Inserir Prescrição Padrão Completa
+            </button>
+          </div>
+
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100">
@@ -412,6 +489,60 @@ export default function NovaPrescricao() {
           </div>
         </div>
 
+        {/* HISTÓRICO DE PRESCRIÇÕES (AGORA FICA AQUI EMBAIXO) */}
+        {pacienteSelecionado && historico.length > 0 && (
+          <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 space-y-4">
+            <h2 className="text-sm font-black text-blue-500 uppercase tracking-widest flex items-center gap-2 mb-6">
+              <History size={18} /> Histórico de Prescrições
+            </h2>
+            
+            <div className="space-y-4 border-l-2 border-blue-200 ml-3 pl-6 relative">
+              {historico.map((prescricao) => (
+                <div key={prescricao.id} className="relative">
+                  <div className="absolute -left-[31px] top-4 w-3.5 h-3.5 bg-white border-2 border-blue-500 rounded-full"></div>
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-all hover:border-blue-300">
+                    <div 
+                      onClick={() => setIdExpandido(idExpandido === prescricao.id ? null : prescricao.id)}
+                      className="p-4 cursor-pointer flex justify-between items-center group"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2 text-slate-700 font-bold">
+                          <Clock size={16} className="text-blue-500" />
+                          {prescricao.data_hora}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">Setor: {prescricao.setor || 'Não informado'} • {prescricao.itens.length} itens prescritos</p>
+                      </div>
+                      <div className="text-slate-300 group-hover:text-blue-500 transition-colors">
+                        {idExpandido === prescricao.id ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                      </div>
+                    </div>
+
+                    {idExpandido === prescricao.id && (
+                      <div className="border-t border-slate-100 bg-slate-50/50 p-4">
+                        <ul className="space-y-2 mb-4">
+                          {prescricao.itens.map((item: any, i: number) => (
+                            <li key={i} className="text-sm text-slate-600 flex items-start gap-2 border-b border-slate-100 pb-2 last:border-0">
+                              <span className="font-bold text-slate-400 w-5">{i+1}.</span>
+                              <span className="flex-1">{item.descricao}</span>
+                              <span className="text-xs font-bold bg-slate-200 text-slate-500 px-2 py-0.5 rounded">{item.horario}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        <button 
+                          onClick={() => duplicarPrescricaoAnterior(prescricao)}
+                          className="w-full flex justify-center items-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-2.5 rounded-lg transition-colors text-sm"
+                        >
+                          <Copy size={16} /> Carregar e Editar esta Prescrição
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
       </div>
 
       {/* MODAL NOVO PACIENTE */}
@@ -431,9 +562,7 @@ export default function NovaPrescricao() {
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">CPF *</label>
                   <input 
-                    required 
-                    type="text" 
-                    value={novoPaciente.cpf} 
+                    required type="text" value={novoPaciente.cpf} 
                     onChange={e => setNovoPaciente({...novoPaciente, cpf: mascaraCPF(e.target.value)})} 
                     className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 outline-none" 
                     placeholder="000.000.000-00" 

@@ -3,20 +3,43 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
-export default function Carrossel({ banners }: { banners: any[] }) {
+// 👇 Removemos a propriedade "banners" que vinha do banco
+export default function Carrossel() {
+  
+  // ==========================================
+  // 🖼️ LISTA FIXA DE BANNERS (Edite aqui!)
+  // Coloque as imagens na pasta "frontend/public"
+  // ==========================================
+  const banners = [
+    { 
+      id: '1', 
+      imagem_url: 'inicial.png', // Nome do arquivo na pasta public
+      titulo: '' 
+    },
+    { 
+      id: '2', 
+      imagem_url: 'vacina.webp', 
+      titulo: '‘Dia D’ de vacinação contra a Influenza neste sábado (18)' 
+    },
+    { 
+      id: '3', 
+      imagem_url: 'imgportal.png', 
+      titulo: '' 
+    }
+  ];
+
   const [atual, setAtual] = useState(0);
 
   // Efeito para passar o banner automaticamente a cada 5 segundos
   useEffect(() => {
-    if (!banners || banners.length <= 1) return;
+    if (banners.length <= 1) return;
     const intervalo = setInterval(() => {
       setAtual((prev) => (prev === banners.length - 1 ? 0 : prev + 1));
     }, 5000);
     return () => clearInterval(intervalo);
-  }, [banners]);
+  }, []); // <-- Ajuste sutil aqui também
 
-  // Se não vier nenhum banner do banco, o componente nem aparece
-  if (!banners || banners.length === 0) return null;
+  if (banners.length === 0) return null;
 
   const proximo = () => setAtual(atual === banners.length - 1 ? 0 : atual + 1);
   const anterior = () => setAtual(atual === 0 ? banners.length - 1 : atual - 1);
@@ -48,7 +71,7 @@ export default function Carrossel({ banners }: { banners: any[] }) {
         </div>
       ))}
 
-      {/* Botões de controle (só aparecem se tiver mais de 1 banner ativo) */}
+      {/* Botões de controle */}
       {banners.length > 1 && (
         <>
           <button
@@ -64,13 +87,14 @@ export default function Carrossel({ banners }: { banners: any[] }) {
             <ChevronRight className="text-slate-800" size={28} />
           </button>
           
-          {/* Bolinhas indicadoras na parte de baixo */}
+          {/* Bolinhas indicadoras */}
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-2">
             {banners.map((_, idx) => (
-              <div
+              <button
                 key={idx}
+                onClick={() => setAtual(idx)} // Deixei as bolinhas clicáveis!
                 className={`h-2 rounded-full transition-all ${
-                  idx === atual ? 'w-8 bg-blue-500' : 'w-2 bg-white/50'
+                  idx === atual ? 'w-8 bg-blue-500' : 'w-2 bg-white/50 hover:bg-white/80'
                 }`}
               />
             ))}

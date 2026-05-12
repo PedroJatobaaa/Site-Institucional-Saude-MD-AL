@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Users, Shield, AlertCircle, Edit, X, CheckCircle, Search } from 'lucide-react';
+import { Users, Shield, AlertCircle, Edit, X, CheckCircle, Search, KeyRound } from 'lucide-react';
 import Link from 'next/link';
 
 // Definimos as caixinhas (módulos) que você poderá liberar no sistema
@@ -9,10 +9,10 @@ const permissoesDisponiveis = [
   { id: 'mural_avisos', nome: 'Gerenciar Mural de Avisos' },
   { id: 'documentos_leitura', nome: 'Acessar Repositório (Download)' },
   { id: 'documentos_gerenciar', nome: 'Gerenciar Repositório (Upload/Excluir)' },
-  { id: 'indicadores', nome: 'Visualizar Indicadores de Saúde' },
   { id: 'sistemas_esus', nome: 'Acesso Restrito ao e-SUS / PEC' },
-  { id: 'rh', nome: 'Módulo de Recursos Humanos' },
   { id: 'upa_acesso', nome: 'Acessar Módulo UPA' },
+  { id: 'central_marcacoes', nome: 'Acesso à Central das Marcações'},
+  { id: 'invig', nome: 'Acesso ao INVIG'},
   { id: 'admin', nome: 'Acesso Total (Administrador)' }
 ];
 
@@ -26,6 +26,7 @@ export default function PainelAdmin() {
   
   // Feedback visual
   const [mensagem, setMensagem] = useState('');
+  const [loadingSenha, setLoadingSenha] = useState(false); // Para o botão de redefinir senha
 
   // 1. Busca os usuários quando a página carrega
   useEffect(() => {
@@ -108,6 +109,34 @@ export default function PainelAdmin() {
     }
   };
 
+  // 5. NOVA FUNÇÃO: Forçar redefinição de senha
+  const forcarRedefinicaoSenha = async () => {
+    if(!window.confirm(`Tem certeza que deseja resetar a senha de ${userEditando.nome}? A senha será apagada e alterada para o padrão do sistema.`)) {
+      return;
+    }
+
+    setLoadingSenha(true);
+    try {
+      const token = localStorage.getItem('saude_token');
+      const res = await fetch(`http://localhost:3333/api/admin/usuarios/${userEditando.id}/forcar-senha`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (res.ok) {
+        // Exibe a senha padrão na tela para o administrador saber qual informar ao usuário
+        setMensagem('✅ Senha resetada para: Saude@123. O usuário deve usá-la no próximo acesso.');
+        setTimeout(() => setMensagem(''), 8000); // Deixei 8 segundos na tela para dar tempo de ler
+      } else {
+        const erro = await res.json();
+        alert(`Erro: ${erro.erro || 'Falha na requisição'}`);
+      }
+    } catch (error) {
+      alert("Erro de conexão ao tentar redefinir senha.");
+    } finally {
+      setLoadingSenha(false);
+    }
+  };
   // Função para renderizar as "etiquetas" coloridas de status
   const badgeStatus = (status: string) => {
     switch (status) {
@@ -235,18 +264,38 @@ export default function PainelAdmin() {
             </div>
 
             <div className="p-6 space-y-8">
-              {/* Seção 1: Status */}
-              <div>
-                <h4 className="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wider">Situação da Conta</h4>
-                <select 
-                  value={userEditando.status}
-                  onChange={(e) => setUserEditando({...userEditando, status: e.target.value})}
-                  className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 focus:ring-2 focus:ring-blue-600 outline-none font-medium text-slate-700"
-                >
-                  <option value="PENDENTE">Em Análise (Pendente)</option>
-                  <option value="APROVADO">Acesso Liberado (Aprovado)</option>
-                  <option value="BLOQUEADO">Acesso Revogado (Bloqueado)</option>
-                </select>
+              
+              {/* Seção 1: Segurança e Status (Lado a Lado) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wider">Situação da Conta</h4>
+                  <select 
+                    value={userEditando.status}
+                    onChange={(e) => setUserEditando({...userEditando, status: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 focus:ring-2 focus:ring-blue-600 outline-none font-medium text-slate-700"
+                  >
+                    <option value="PENDENTE">Em Análise (Pendente)</option>
+                    <option value="APROVADO">Acesso Liberado (Aprovado)</option>
+                    <option value="BLOQUEADO">Acesso Revogado (Bloqueado)</option>
+                  </select>
+                </div>
+
+                <div>
+                   <h4 className="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wider">Segurança</h4>
+                   {/* 👇 AQUI ESTÁ O NOVO BOTÃO DE REDEFINIR SENHA 👇 */}
+                   <button
+                    type="button"
+                    onClick={forcarRedefinicaoSenha}
+                    disabled={loadingSenha}
+                    className="w-full flex items-center justify-center gap-2 p-3 border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl font-bold transition-colors disabled:opacity-70"
+                   >
+                     <KeyRound size={18} />
+                     {loadingSenha ? 'Processando...' : 'Exigir Nova Senha'}
+                   </button>
+                   <p className="text-[10px] text-slate-400 mt-1.5 text-center">
+                     O usuário será forçado a trocar a senha no próximo login.
+                   </p>
+                </div>
               </div>
 
               {/* Seção 2: Permissões */}

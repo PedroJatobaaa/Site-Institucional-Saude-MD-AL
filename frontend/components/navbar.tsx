@@ -52,7 +52,6 @@ export default function Navbar() {
           {/* Centro: Links de Navegação (Desktop) */}
           <div className="hidden lg:flex items-center space-x-2">
             <Link href="/" className="text-slate-600 hover:text-blue-600 px-4 py-2 rounded-lg font-medium transition-all hover:bg-blue-50">Início</Link>
-            <Link href="#coordenacoes" className="text-slate-600 hover:text-blue-600 px-4 py-2 rounded-lg font-medium transition-all hover:bg-blue-50">Coordenações</Link>
             
             {/* SUBMENU DE SISTEMAS (Dropdown Animado) */}
             <div className="relative group">
@@ -64,11 +63,15 @@ export default function Navbar() {
               {/* Caixa Suspensa */}
               <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-slate-100 rounded-2xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform origin-top-left scale-95 group-hover:scale-100 overflow-hidden">
                 <div className="p-2 flex flex-col gap-1">
-                  <Link href="#" className="px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition-colors">e-SUS APS / PEC</Link>
-                  <Link href="#" className="px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition-colors">Ponto Eletrônico</Link>
-                  <Link href="#" className="px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition-colors">Portal do Servidor</Link>
-                  <Link href="#" className="px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition-colors">Webmail Institucional</Link>
-                </div>
+                <Link 
+                  href="https://marechaldeodoro-al.datasysconsultoria.com.br/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition-colors"
+                >
+                  e-SUS APS / PEC
+                </Link>
+              </div>
               </div>
             </div>
 
@@ -138,10 +141,8 @@ export default function Navbar() {
             <div className="px-4 py-2">
               <p className="text-slate-400 text-sm font-bold uppercase tracking-wider mb-2">Sistemas</p>
               <div className="flex flex-col pl-3 border-l-2 border-slate-100 gap-1">
-                <Link href="#" onClick={() => setMenuAberto(false)} className="py-2.5 px-3 text-sm font-semibold text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-xl">e-SUS APS / PEC</Link>
-                <Link href="#" onClick={() => setMenuAberto(false)} className="py-2.5 px-3 text-sm font-semibold text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-xl">Ponto Eletrônico</Link>
-                <Link href="#" onClick={() => setMenuAberto(false)} className="py-2.5 px-3 text-sm font-semibold text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-xl">Portal do Servidor</Link>
-                <Link href="#" onClick={() => setMenuAberto(false)} className="py-2.5 px-3 text-sm font-semibold text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-xl">Webmail</Link>
+                <Link href="https://marechaldeodoro-al.datasysconsultoria.com.br/" onClick={() => setMenuAberto(false)} className="py-2.5 px-3 text-sm font-semibold text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-xl">e-SUS APS / PEC</Link>
+
               </div>
             </div>
             
@@ -158,7 +159,7 @@ export default function Navbar() {
                   <LogOut size={20} /> Sair do Sistema
                 </button>
               ) : (
-                <Link href="/acesso" onClick={() => setMenuAberto(false)} className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-4 rounded-2xl font-bold shadow-lg shadow-blue-600/20">
+                <Link href="/login" onClick={() => setMenuAberto(false)} className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-4 rounded-2xl font-bold shadow-lg shadow-blue-600/20">
                   <UserCircle size={20} /> Acesso Restrito
                 </Link>
               )}

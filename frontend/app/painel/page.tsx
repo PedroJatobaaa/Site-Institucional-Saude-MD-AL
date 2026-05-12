@@ -12,7 +12,8 @@ import {
   ShieldCheck,
   ChevronRight,
   LogOut,
-  FileText
+  FileText,
+  Calendar
 } from 'lucide-react';
 
 export default function PainelPrincipal() {
@@ -31,7 +32,7 @@ export default function PainelPrincipal() {
   const handleLogout = () => {
     localStorage.removeItem('saude_token');
     localStorage.removeItem('saude_usuario');
-    router.push('/acesso');
+    router.push('/');
   };
 
   if (!usuario) return null;
@@ -60,24 +61,6 @@ export default function PainelPrincipal() {
       permissaoExigida: 'sistemas_esus'
     },
     {
-      id: 'indicadores',
-      titulo: 'Indicadores de Saúde',
-      descricao: 'Gráficos e metas do Previne Brasil e acompanhamento.',
-      icone: <Activity size={28} className="text-blue-600" />,
-      bgIcone: 'bg-blue-100',
-      rota: '/painel/indicadores', // Rota futura
-      permissaoExigida: 'indicadores'
-    },
-    {
-      id: 'rh',
-      titulo: 'Recursos Humanos',
-      descricao: 'Gestão de folha, ponto eletrônico e contracheques.',
-      icone: <Briefcase size={28} className="text-purple-600" />,
-      bgIcone: 'bg-purple-100',
-      rota: '/painel/rh', // Rota futura
-      permissaoExigida: 'rh'
-    },
-    {
       id: 'admin',
       titulo: 'Gestão de Acessos',
       descricao: 'Painel de controle exclusivo para administradores e TI.',
@@ -103,6 +86,25 @@ export default function PainelPrincipal() {
       bgIcone: 'bg-rose-100',
       rota: '/painel/upa',
       permissaoExigida: 'upa_acesso'
+    },
+    {
+      id: 'central_marcacoes',
+      titulo: 'Central das Marcações',
+      descricao: 'Sistema de agendamento de consultas e exames especializados.',
+      icone: <Calendar size={28} className="text-indigo-600" />,
+      bgIcone: 'bg-indigo-100',
+      rota: 'https://chat.smsregulacao.online', // 
+      externo: true,
+      permissaoExigida: 'central_marcacoes'
+    },
+    {
+      id: 'invig',
+      titulo: 'INVIG',
+      descricao: 'Relatório e Controle de Investigação de Óbitos.',
+      icone: <FileText size={28} className="text-red-600" />,
+      bgIcone: 'bg-red-100',
+      rota: '/painel/invig',
+      permissaoExigida: 'admin' // Altere para a permissão que preferir
     },
   ];
 
@@ -131,9 +133,6 @@ export default function PainelPrincipal() {
           </div>
 
           <div className="flex items-center gap-4">
-            <Link href="/" className="text-sm font-bold text-slate-500 hover:text-blue-600 transition-colors hidden sm:block">
-              Ir para o Site
-            </Link>
             <button 
               onClick={handleLogout}
               className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-red-600 hover:bg-red-50 font-bold rounded-xl transition-all"
