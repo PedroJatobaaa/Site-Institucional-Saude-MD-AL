@@ -101,7 +101,7 @@ export default function NovaPrescricao() {
 
     try {
       const token = localStorage.getItem('saude_token');
-      const res = await fetch('http://localhost:3333/api/upa/prescricoes', {
+      const res = await fetch('/api/upa/prescricoes', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -131,7 +131,7 @@ export default function NovaPrescricao() {
     const timer = setTimeout(async () => {
       try {
         const token = localStorage.getItem('saude_token');
-        const res = await fetch(`http://localhost:3333/api/upa/pacientes?q=${busca}`, {
+        const res = await fetch(`/api/upa/pacientes?q=${busca}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const dados = await res.json();
@@ -151,7 +151,7 @@ export default function NovaPrescricao() {
     setHistorico([]);
     try {
       const token = localStorage.getItem('saude_token');
-      const res = await fetch(`http://localhost:3333/api/upa/pacientes/${paciente.id}/prescricoes`, {
+      const res = await fetch(`/api/upa/pacientes/${paciente.id}/prescricoes`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -166,7 +166,7 @@ export default function NovaPrescricao() {
   const salvarEdicaoPaciente = async () => {
     try {
       const token = localStorage.getItem('saude_token');
-      const res = await fetch(`http://localhost:3333/api/upa/pacientes/${pacienteSelecionado.id}`, {
+      const res = await fetch(`/api/upa/pacientes/${pacienteSelecionado.id}`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
@@ -196,7 +196,7 @@ export default function NovaPrescricao() {
     setLoadingCadastro(true);
     const token = localStorage.getItem('saude_token');
     try {
-      const res = await fetch('http://localhost:3333/api/upa/pacientes', {
+      const res = await fetch('/api/upa/pacientes', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

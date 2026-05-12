@@ -364,7 +364,7 @@ app.post('/api/documentos', verificarToken, upload.single('arquivo'), async (req
         nome_arquivo: req.file.filename,
         tipo_extensao: path.extname(req.file.originalname).replace('.', '').toLowerCase(),
         tamanho: req.file.size,
-        url_caminho: `http://localhost:3333/arquivos/${req.file.filename}`,
+        url_caminho: `/arquivos/${req.file.filename}`,
         criado_por_nome: nome
       }
     });

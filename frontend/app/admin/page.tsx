@@ -37,7 +37,7 @@ export default function PainelAdmin() {
     try {
       const token = localStorage.getItem('saude_token');
 
-      const res = await fetch('http://localhost:3333/api/admin/usuarios', {
+      const res = await fetch('/api/admin/usuarios', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -83,7 +83,7 @@ export default function PainelAdmin() {
     try {
       const token = localStorage.getItem('saude_token');
 
-      const res = await fetch(`http://localhost:3333/api/admin/usuarios/${userEditando.id}`, {
+      const res = await fetch(`/api/admin/usuarios/${userEditando.id}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
@@ -118,7 +118,7 @@ export default function PainelAdmin() {
     setLoadingSenha(true);
     try {
       const token = localStorage.getItem('saude_token');
-      const res = await fetch(`http://localhost:3333/api/admin/usuarios/${userEditando.id}/forcar-senha`, {
+      const res = await fetch(`/api/admin/usuarios/${userEditando.id}/forcar-senha`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });

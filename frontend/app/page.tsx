@@ -12,10 +12,10 @@ const iconMap: Record<string, React.ElementType> = {
 };
 
 export default async function PaginaInicial() {
-  const resCoord = await fetch('http://localhost:3333/api/coordenacoes', { cache: 'no-store' });
+  const resCoord = await fetch('/api/coordenacoes', { cache: 'no-store' });
   const coordenacoes = await resCoord.json();
 
-  const resBanner = await fetch('http://localhost:3333/api/carrossel', { cache: 'no-store' });
+  const resBanner = await fetch('/api/carrossel', { cache: 'no-store' });
   const banners = await resBanner.json();
 
   return (

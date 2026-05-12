@@ -73,7 +73,7 @@ export default function SolicitarAcesso() {
 
     try {
       // Fazendo a chamada REAL para o seu banco de dados na porta 3333!
-      const resposta = await fetch('http://localhost:3333/api/auth/registrar', {
+      const resposta = await fetch('/api/auth/registrar', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

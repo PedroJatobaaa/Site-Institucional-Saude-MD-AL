@@ -44,7 +44,7 @@ export default function RepositorioDocumentos() {
 
   const carregarDocumentos = async (token: string) => {
     try {
-      const res = await fetch('http://localhost:3333/api/documentos', {
+      const res = await fetch('/api/documentos', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const dados = await res.json();
@@ -71,7 +71,7 @@ export default function RepositorioDocumentos() {
     formData.append('arquivo', arquivo); // Anexa o arquivo físico
 
     try {
-      const res = await fetch('http://localhost:3333/api/documentos', {
+      const res = await fetch('/api/documentos', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }, // ATENÇÃO: Não colocamos 'Content-Type' aqui. O navegador faz isso automático com FormData.
         body: formData
@@ -98,7 +98,7 @@ export default function RepositorioDocumentos() {
     const token = localStorage.getItem('saude_token');
 
     try {
-      const res = await fetch(`http://localhost:3333/api/documentos/${id}`, {
+      const res = await fetch(`/api/documentos/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });

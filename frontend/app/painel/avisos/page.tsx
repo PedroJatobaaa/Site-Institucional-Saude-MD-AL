@@ -46,11 +46,11 @@ export default function PainelAvisos() {
   // 2. Busca os dados
   const carregarDados = async () => {
     try {
-      const resAvisos = await fetch('http://localhost:3333/api/avisos');
+      const resAvisos = await fetch('/api/avisos');
       const dadosAvisos = await resAvisos.json();
       if (Array.isArray(dadosAvisos)) setAvisos(dadosAvisos);
 
-      const resCoords = await fetch('http://localhost:3333/api/coordenacoes');
+      const resCoords = await fetch('/api/coordenacoes');
       const dadosCoords = await resCoords.json();
       if (Array.isArray(dadosCoords)) setCoordenacoes(dadosCoords);
     } catch (error) {
@@ -67,7 +67,7 @@ export default function PainelAvisos() {
     const token = localStorage.getItem('saude_token');
 
     try {
-      const resposta = await fetch('http://localhost:3333/api/avisos', {
+      const resposta = await fetch('/api/avisos', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -104,7 +104,7 @@ export default function PainelAvisos() {
     const token = localStorage.getItem('saude_token');
 
     try {
-      const resposta = await fetch(`http://localhost:3333/api/avisos/${id}`, {
+      const resposta = await fetch(`/api/avisos/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
