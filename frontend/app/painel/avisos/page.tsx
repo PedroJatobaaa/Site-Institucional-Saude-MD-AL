@@ -46,11 +46,11 @@ export default function PainelAvisos() {
   // 2. Busca os dados
   const carregarDados = async () => {
     try {
-      const resAvisos = await fetch('/api/avisos');
+      const resAvisos = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/avisos`);
       const dadosAvisos = await resAvisos.json();
       if (Array.isArray(dadosAvisos)) setAvisos(dadosAvisos);
 
-      const resCoords = await fetch('/api/coordenacoes');
+      const resCoords = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/coordenacoes`);
       const dadosCoords = await resCoords.json();
       if (Array.isArray(dadosCoords)) setCoordenacoes(dadosCoords);
     } catch (error) {
@@ -67,7 +67,7 @@ export default function PainelAvisos() {
     const token = localStorage.getItem('saude_token');
 
     try {
-      const resposta = await fetch('/api/avisos', {
+      const resposta = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/avisos`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -104,7 +104,7 @@ export default function PainelAvisos() {
     const token = localStorage.getItem('saude_token');
 
     try {
-      const resposta = await fetch(`/api/avisos/${id}`, {
+      const resposta = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/avisos/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });

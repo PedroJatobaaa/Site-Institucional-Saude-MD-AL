@@ -24,3 +24,18 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Força a cor do texto nos inputs para não bugar no modo escuro do celular */
+input, select, textarea {
+  color: #111827 !important; /* Um cinza bem escuro, quase preto */
+}
+
+/* Corrige o fundo e a cor do texto quando o celular usa preenchimento automático (Autofill) */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active{
+    -webkit-box-shadow: 0 0 0 30px white inset !important; /* Mantém o fundo branco */
+    -webkit-text-fill-color: #111827 !important; /* Mantém o texto escuro */
+    transition: background-color 5000s ease-in-out 0s;
+}

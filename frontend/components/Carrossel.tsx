@@ -13,19 +13,15 @@ export default function Carrossel() {
   const banners = [
     { 
       id: '1', 
-      imagem_url: 'inicial.png', // Nome do arquivo na pasta public
+      imagem_url: 'bemvindo.png', 
       titulo: '' 
     },
     { 
       id: '2', 
       imagem_url: 'vacina.webp', 
-      titulo: '‘Dia D’ de vacinação contra a Influenza neste sábado (18)' 
+      titulo: '‘Dia D’ de vacinação contra a Influenza neste sábado (18 / 04)' 
     },
-    { 
-      id: '3', 
-      imagem_url: 'imgportal.png', 
-      titulo: '' 
-    }
+   
   ];
 
   const [atual, setAtual] = useState(0);

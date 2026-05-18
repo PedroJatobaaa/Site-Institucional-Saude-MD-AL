@@ -12,16 +12,20 @@ const iconMap: Record<string, React.ElementType> = {
 };
 
 export default async function PaginaInicial() {
-  const resCoord = await fetch('/api/coordenacoes', { cache: 'no-store' });
+  // 1. A nossa regra para contornar o Docker
+  const apiBaseUrl = typeof window === 'undefined' 
+    ? 'http://backend:3333' 
+    : process.env.NEXT_PUBLIC_API_URL;
+
+  // 2. O fetch atualizado usando a nova variável
+  const resCoord = await fetch(`${apiBaseUrl}/api/coordenacoes`, { cache: 'no-store' });
   const coordenacoes = await resCoord.json();
 
-  const resBanner = await fetch('/api/carrossel', { cache: 'no-store' });
-  const banners = await resBanner.json();
 
   return (
     <main className="min-h-screen bg-slate-50 font-sans">
       
-      <Carrossel banners={banners} />
+      <Carrossel />
 
       {/* Fundo com um gradiente super sutil para dar profundidade */}
       <section className="py-24 px-4 max-w-7xl mx-auto relative">
@@ -39,7 +43,7 @@ export default async function PaginaInicial() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 relative z-10">
-          {coordenacoes.map((coord: any) => {
+          {Array.isArray(coordenacoes) && coordenacoes.map((coord: any) => {
             const Icone = iconMap[coord.icone] || FileText;
 
             return (

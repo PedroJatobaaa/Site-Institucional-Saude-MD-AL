@@ -1,9 +1,7 @@
-// Isso diz ao Prisma como se conectar (usando o .env)
 datasource db {
   provider = "postgresql"
 }
 
-// Isso gera o cliente TypeScript que usaremos no Express
 generator client {
   provider = "prisma-client-js"
 }

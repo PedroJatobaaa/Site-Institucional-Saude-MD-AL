@@ -1,19 +1,23 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import { Pool } from 'pg'; // Adicionado
+import { PrismaPg } from '@prisma/adapter-pg'; // Adicionado
 import { PrismaClient } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
-import bcrypt from 'bcrypt';
+
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 
-// 1. Inicializando o Prisma
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL as string });
+// 1. Configurando o Driver de Conexão do Prisma 7
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 const app = express();
+// ... resto do seu código (rotas, middlewares, etc) continua igual
 
 // 2. Configurações essenciais
 app.use(cors());
@@ -111,6 +115,9 @@ app.get('/api/carrossel', async (req, res) => {
 // ---------------------------------------------------------
 
 app.post('/api/auth/registrar', async (req, res): Promise<any> => {
+  console.log("📢 RECEBI UMA TENTATIVA DE REGISTRO!");
+  console.log("📦 DADOS RECEBIDOS:", req.body);
+  
   try {
     const { nome, email, senha, cargo, cpf, unidade } = req.body;
     
@@ -121,7 +128,11 @@ app.post('/api/auth/registrar', async (req, res): Promise<any> => {
     const usuarioExistente = await prisma.usuario.findUnique({ where: { email } });
     if (usuarioExistente) return res.status(400).json({ erro: 'E-mail já em uso.' });
 
-    const senhaCriptografada = await bcrypt.hash(senha, 10);
+    // 👇 O TESTE: Comente o bcrypt e passe a senha pura só desta vez
+    // const senhaCriptografada = await bcrypt.hash(senha, 10);
+    const senhaCriptografada = senha; 
+
+    console.log("⏳ Tentando salvar no banco de dados..."); // Mais um dedo-duro
 
     const novoUsuario = await prisma.usuario.create({
       data: { 
@@ -134,9 +145,10 @@ app.post('/api/auth/registrar', async (req, res): Promise<any> => {
       }
     });
 
+    console.log("✅ Usuário salvo com sucesso!");
     return res.status(201).json({ mensagem: 'Cadastro realizado! Aguarde aprovação.' });
   } catch (error) {
-    console.error(error);
+    console.error("🔥 ERRO NO CATCH:", error);
     return res.status(500).json({ erro: 'Falha interna no servidor.' });
   }
 });
@@ -612,6 +624,30 @@ app.get('/api/upa/pacientes/:id/prescricoes', verificarToken, async (req: any, r
     console.error("❌ ERRO AO BUSCAR HISTÓRICO DE PRESCRIÇÕES:", error);
     return res.status(500).json({ erro: 'Falha ao carregar o histórico.' });
   }
+});
+
+// 1. Log de Auditoria (Coloque logo após o 'const app = express()')
+app.use((req, res, next) => {
+  console.log(`🌐 Nova requisição: ${req.method} ${req.url}`);
+  next();
+});
+
+// Garanta que o body-parser esteja aqui
+app.use(express.json());
+// Middleware global para capturar erros que o try/catch não pegou
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error("🚨 ERRO CAPTURADO NO MIDDLEWARE:", err);
+  res.status(500).json({ erro: err.message || 'Erro interno' });
+});
+
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error("🚨 ERRO OCULTO DESCOBERTO:", err);
+  
+  // Isso força o Express a sempre devolver JSON, nunca texto puro
+  res.status(500).json({ 
+    erro: "O servidor interceptou uma falha grave.", 
+    detalhe: err.message || "Erro desconhecido" 
+  });
 });
 
 // 6. Ligando o Servidor

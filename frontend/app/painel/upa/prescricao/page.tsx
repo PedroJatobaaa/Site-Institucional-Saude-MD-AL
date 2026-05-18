@@ -52,7 +52,6 @@ export default function NovaPrescricao() {
       { dev: '-',  descricao: 'ELEVAR CABECEIRA 30°', horario: 'CONTÍNUO' },
       { dev: '-',  descricao: 'MUDAR DECÚBITO', horario: '2/2 HORAS' },
       { dev: '-',  descricao: 'SINAIS VITAIS E CUIDADOS GERAIS', horario: '6/6 HORAS' },
-      { dev: '-',  descricao: 'FISIOTERAPIA', horario: 'SESSÕES' }
     ]
   };
 
