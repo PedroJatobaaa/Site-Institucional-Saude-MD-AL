@@ -79,6 +79,23 @@ chmod +x scripts/deploy.sh
 
 As migrações do banco rodam automaticamente quando o backend sobe.
 
+### Primeira atualização em servidor com banco já existente (erro P3005)
+
+Se `prisma migrate deploy` retornar **P3005** (banco não vazio sem histórico de migrações), rode **uma vez**:
+
+```powershell
+git pull origin main
+docker compose exec backend npx prisma migrate resolve --applied 20260414142725_init_landing_page
+docker compose exec backend npx prisma migrate resolve --applied 20260415173006_add_users_table
+docker compose exec backend npx prisma migrate resolve --applied 20260423130159_adicionar_documentos
+docker compose exec backend npx prisma migrate resolve --applied 20260423171124_sistema_prescricao_upa
+docker compose exec backend npx prisma migrate resolve --applied 20260424121528_adicionar_cns_opcional
+docker compose exec backend npx prisma migrate deploy
+docker compose restart backend
+```
+
+Ou use o script: `sh scripts/baseline-producao.sh`
+
 ### Verificar após o deploy
 
 ```bash
