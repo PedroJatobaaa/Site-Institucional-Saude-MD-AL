@@ -13,6 +13,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U usuariosaude -d portalsaude"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
 
   # 2. Backend (Node.js/API)
   backend:
@@ -28,7 +34,8 @@ services:
       JWT_SECRET: "secretaria_saude_marechal_deodoro_2026_impulso"
       PORT: 3333
     depends_on:
-      - db-portal
+      db-portal:
+        condition: service_healthy
 
   # 3. Frontend (Next.js)
   frontend:

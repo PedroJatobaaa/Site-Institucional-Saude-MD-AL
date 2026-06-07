@@ -4,15 +4,14 @@ set -e
 echo "Aguardando o PostgreSQL..."
 i=0
 while [ "$i" -lt 60 ]; do
-  if npx prisma migrate deploy 2>/dev/null; then
+  if npx prisma migrate deploy; then
     echo "Migrações aplicadas."
-    break
+    exec "$@"
   fi
   i=$((i + 1))
-  echo "Banco ainda indisponível, tentativa $i/60..."
+  echo "Falha nas migrações, tentativa $i/60..."
   sleep 2
 done
 
-npx prisma migrate deploy
-
-exec "$@"
+echo "ERRO: não foi possível aplicar migrações após 60 tentativas."
+exit 1
