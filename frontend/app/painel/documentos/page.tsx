@@ -7,6 +7,7 @@ import {
   FileText, Download, Trash2, UploadCloud, 
   ArrowLeft, Search, File, FileCode, FileSpreadsheet 
 } from 'lucide-react';
+import { getToken, getUsuario } from '@/lib/auth/session';
 
 export default function RepositorioDocumentos() {
   const router = useRouter();
@@ -24,13 +25,11 @@ export default function RepositorioDocumentos() {
   const [arquivo, setArquivo] = useState<File | null>(null);
 
   useEffect(() => {
-    const userSalvo = localStorage.getItem('saude_usuario');
-    if (!userSalvo) {
-      router.push('/acesso');
+    const userObj = getUsuario();
+    if (!userObj) {
+      router.push('/login');
       return;
     }
-
-    const userObj = JSON.parse(userSalvo);
     // Verifica se tem permissão básica de leitura
     if (!userObj.permissoes?.includes('documentos_leitura') && !userObj.permissoes?.includes('admin')) {
       alert("Você não tem permissão para acessar o repositório.");
@@ -39,7 +38,7 @@ export default function RepositorioDocumentos() {
     }
 
     setUsuario(userObj);
-    carregarDocumentos(localStorage.getItem('saude_token') || '');
+    carregarDocumentos(getToken() || '');
   }, []);
 
   const carregarDocumentos = async (token: string) => {
@@ -62,7 +61,7 @@ export default function RepositorioDocumentos() {
     if (!arquivo) return alert("Selecione um arquivo primeiro!");
 
     setLoading(true);
-    const token = localStorage.getItem('saude_token');
+    const token = getToken();
 
     // Aqui está a mágica: FormData em vez de JSON!
     const formData = new FormData();
@@ -95,7 +94,7 @@ export default function RepositorioDocumentos() {
 
   const handleDeletar = async (id: number) => {
     if (!window.confirm("Deseja realmente excluir este arquivo do servidor?")) return;
-    const token = localStorage.getItem('saude_token');
+    const token = getToken();
 
     try {
       const res = await fetch(`/api/documentos/${id}`, {

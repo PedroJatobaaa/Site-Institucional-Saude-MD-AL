@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { Menu, X, UserCircle, LogOut, Shield, LayoutDashboard, ChevronDown } from 'lucide-react';
+import { encerrarSessao, getUsuario } from '@/lib/auth/session';
 
 export default function Navbar() {
   const [menuAberto, setMenuAberto] = useState(false);
@@ -13,17 +14,13 @@ export default function Navbar() {
   const pathname = usePathname(); // Sensor de qual página estamos
 
   useEffect(() => {
-    const userSalvo = localStorage.getItem('saude_usuario');
-    if (userSalvo) {
-      setUsuario(JSON.parse(userSalvo));
-    }
-  }, []);
+    setUsuario(getUsuario());
+  }, [pathname]);
 
   const handleLogout = () => {
-    localStorage.removeItem('saude_token');
-    localStorage.removeItem('saude_usuario');
+    encerrarSessao();
     setUsuario(null);
-    router.push('/acesso');
+    router.push('/login');
   };
 
   // ==========================================
@@ -52,6 +49,7 @@ export default function Navbar() {
           {/* Centro: Links de Navegação (Desktop) */}
           <div className="hidden lg:flex items-center space-x-2">
             <Link href="/" className="text-slate-600 hover:text-blue-600 px-4 py-2 rounded-lg font-medium transition-all hover:bg-blue-50">Início</Link>
+            <Link href="#coordenacoes" className="text-slate-600 hover:text-blue-600 px-4 py-2 rounded-lg font-medium transition-all hover:bg-blue-50">Coordenações</Link>
             
             {/* SUBMENU DE SISTEMAS (Dropdown Animado) */}
             <div className="relative group">
@@ -75,7 +73,7 @@ export default function Navbar() {
               </div>
             </div>
 
-            <Link href="#noticias" className="text-slate-600 hover:text-blue-600 px-4 py-2 rounded-lg font-medium transition-all hover:bg-blue-50">Notícias</Link>
+            <Link href="#noticias" className="text-slate-600 hover:text-blue-600 px-4 py-2 rounded-lg font-medium transition-all hover:bg-blue-50">Comunicados</Link>
           </div>
 
           {/* Lado Direito: Perfil / Acesso */}
@@ -135,6 +133,7 @@ export default function Navbar() {
             )}
 
             <Link href="/" onClick={() => setMenuAberto(false)} className="block px-4 py-3 rounded-xl text-slate-700 font-bold hover:bg-blue-50 hover:text-blue-600 transition-colors">Início</Link>
+            <Link href="#noticias" onClick={() => setMenuAberto(false)} className="block px-4 py-3 rounded-xl text-slate-700 font-bold hover:bg-blue-50 hover:text-blue-600 transition-colors">Comunicados</Link>
             <Link href="#coordenacoes" onClick={() => setMenuAberto(false)} className="block px-4 py-3 rounded-xl text-slate-700 font-bold hover:bg-blue-50 hover:text-blue-600 transition-colors">Coordenações</Link>
             
             {/* SUBMENU SISTEMAS MOBILE */}

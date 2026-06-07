@@ -13,26 +13,28 @@ import {
   ChevronRight,
   LogOut,
   FileText,
-  Calendar
+  Calendar,
+  Factory,
+  UserCog
 } from 'lucide-react';
+import { encerrarSessao, getUsuario } from '@/lib/auth/session';
 
 export default function PainelPrincipal() {
   const router = useRouter();
   const [usuario, setUsuario] = useState<any>(null);
 
   useEffect(() => {
-    const userSalvo = localStorage.getItem('saude_usuario');
-    if (!userSalvo) {
+    const user = getUsuario();
+    if (!user) {
       router.push('/login');
       return;
     }
-    setUsuario(JSON.parse(userSalvo));
+    setUsuario(user);
   }, [router]);
 
   const handleLogout = () => {
-    localStorage.removeItem('saude_token');
-    localStorage.removeItem('saude_usuario');
-    router.push('/');
+    encerrarSessao();
+    router.push('/login');
   };
 
   if (!usuario) return null;
@@ -98,6 +100,25 @@ export default function PainelPrincipal() {
       permissaoExigida: 'central_marcacoes'
     },
     {
+      id: 'producoes',
+      titulo: 'Módulo de Produções',
+      descricao: 'Envio mensal de arquivos de produção das UBS para processamento de dados.',
+      icone: <Factory size={28} className="text-violet-600" />,
+      bgIcone: 'bg-violet-100',
+      rota: '/painel/producoes',
+      permissaoExigida: 'ROLE_UBS',
+      permissoesAlternativas: ['ROLE_PROCESSAMENTO'],
+    },
+    {
+      id: 'profissionais',
+      titulo: 'Cadastro de Profissionais',
+      descricao: 'Ficha cadastral de profissionais de saúde conforme modelo SUS.',
+      icone: <UserCog size={28} className="text-teal-600" />,
+      bgIcone: 'bg-teal-100',
+      rota: '/painel/profissionais',
+      permissaoExigida: 'profissionais_gerenciar',
+    },
+    {
       id: 'invig',
       titulo: 'INVIG',
       descricao: 'Relatório e Controle de Investigação de Óbitos.',
@@ -111,10 +132,14 @@ export default function PainelPrincipal() {
   // Filtra os módulos para mostrar apenas os que o usuário tem permissão.
   // Se ele tiver 'admin', a lógica (opcional) poderia liberar tudo, 
   // mas aqui vamos ser estritos: tem que ter a caixinha marcada lá no seu Admin.
-  const modulosPermitidos = modulos.filter(modulo => 
-    usuario.permissoes?.includes(modulo.permissaoExigida) || 
-    usuario.permissoes?.includes('admin') // Admin vê tudo por padrão
-  );
+  const modulosPermitidos = modulos.filter((modulo: any) => {
+    const alts: string[] = modulo.permissoesAlternativas || [];
+    return (
+      usuario.permissoes?.includes(modulo.permissaoExigida) ||
+      alts.some((p: string) => usuario.permissoes?.includes(p)) ||
+      usuario.permissoes?.includes('admin')
+    );
+  });
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans">

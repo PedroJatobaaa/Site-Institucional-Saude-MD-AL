@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Megaphone, Trash2, PlusCircle, ArrowLeft, Link as LinkIcon, Building2, Filter, AlignLeft } from 'lucide-react';
+import { getToken, getUsuario } from '@/lib/auth/session';
 
 export default function PainelAvisos() {
   const router = useRouter();
@@ -26,13 +27,11 @@ export default function PainelAvisos() {
 
   // 1. Verificação de Segurança
   useEffect(() => {
-    const userSalvo = localStorage.getItem('saude_usuario');
-    if (!userSalvo) {
-      router.push('/acesso');
+    const userObj = getUsuario();
+    if (!userObj) {
+      router.push('/login');
       return;
     }
-
-    const userObj = JSON.parse(userSalvo);
     if (!userObj.permissoes?.includes('mural_avisos') && !userObj.permissoes?.includes('admin')) {
       alert("Você não tem permissão para acessar este módulo.");
       router.push('/painel');
@@ -64,7 +63,7 @@ export default function PainelAvisos() {
     setLoading(true);
     setMensagem({ texto: '', tipo: '' });
 
-    const token = localStorage.getItem('saude_token');
+    const token = getToken();
 
     try {
       const resposta = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/avisos`, {
@@ -101,7 +100,7 @@ export default function PainelAvisos() {
   const handleDeletar = async (id: string) => {
     if (!window.confirm("Tem certeza que deseja apagar este aviso do portal?")) return;
 
-    const token = localStorage.getItem('saude_token');
+    const token = getToken();
 
     try {
       const resposta = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/avisos/${id}`, {

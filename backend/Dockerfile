@@ -11,7 +11,9 @@ COPY . .
 # Gera o cliente do Prisma
 RUN npx prisma generate
 
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
+
 EXPOSE 3333
-# Podes usar "npm start" se tiveres um script de build, 
-# ou "npm run dev" se quiseres manter em modo desenvolvimento no servidor.
+ENTRYPOINT ["sh", "/docker-entrypoint.sh"]
 CMD ["npm", "run", "dev"]

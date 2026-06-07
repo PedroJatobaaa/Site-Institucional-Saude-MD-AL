@@ -3,37 +3,42 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
-// 👇 Removemos a propriedade "banners" que vinha do banco
-export default function Carrossel() {
-  
-  // ==========================================
-  // 🖼️ LISTA FIXA DE BANNERS (Edite aqui!)
-  // Coloque as imagens na pasta "frontend/public"
-  // ==========================================
-  const banners = [
-    { 
-      id: '1', 
-      imagem_url: 'bemvindo.png', 
-      titulo: '' 
-    },
-    { 
-      id: '2', 
-      imagem_url: 'vacina.webp', 
-      titulo: '‘Dia D’ de vacinação contra a Influenza neste sábado (18 / 04)' 
-    },
-   
-  ];
+export type BannerCarrossel = {
+  id: string;
+  imagem_url: string;
+  titulo: string;
+};
+
+const BANNERS_FALLBACK: BannerCarrossel[] = [
+  {
+    id: 'fallback-1',
+    imagem_url: 'bemvindo.png',
+    titulo: 'Portal da Saúde — Marechal Deodoro',
+  },
+  {
+    id: 'fallback-2',
+    imagem_url: 'vacina.webp',
+    titulo: 'Campanhas de vacinação e prevenção em toda a rede municipal',
+  },
+];
+
+type CarrosselProps = {
+  banners?: BannerCarrossel[];
+};
+
+export default function Carrossel({ banners: bannersProp = [] }: CarrosselProps) {
+  const banners =
+    bannersProp.length > 0 ? bannersProp : BANNERS_FALLBACK;
 
   const [atual, setAtual] = useState(0);
 
-  // Efeito para passar o banner automaticamente a cada 5 segundos
   useEffect(() => {
     if (banners.length <= 1) return;
     const intervalo = setInterval(() => {
       setAtual((prev) => (prev === banners.length - 1 ? 0 : prev + 1));
     }, 5000);
     return () => clearInterval(intervalo);
-  }, []); // <-- Ajuste sutil aqui também
+  }, [banners.length]);
 
   if (banners.length === 0) return null;
 
@@ -41,62 +46,66 @@ export default function Carrossel() {
   const anterior = () => setAtual(atual === 0 ? banners.length - 1 : atual - 1);
 
   return (
-    <div className="relative w-full h-[300px] md:h-[400px] bg-slate-200 overflow-hidden">
-      {banners.map((banner, index) => (
-        <div
-          key={banner.id}
-          className={`absolute inset-0 transition-opacity duration-1000 ${
-            index === atual ? 'opacity-100 z-10' : 'opacity-0 z-0'
-          }`}
-        >
-          {/* Imagem do Banner */}
-          <img
-            src={banner.imagem_url}
-            alt={banner.titulo}
-            className="w-full h-full object-cover"
-          />
-          
-          {/* Degradê escuro sobre a imagem para o título ficar legível */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex items-end">
-            <div className="p-8 md:p-16 max-w-7xl mx-auto w-full">
-              <h2 className="text-white text-3xl md:text-5xl font-bold drop-shadow-md max-w-2xl">
-                {banner.titulo}
-              </h2>
+    <div className="relative w-full">
+      <div className="relative w-full h-[360px] md:h-[480px] bg-slate-900 overflow-hidden">
+        {banners.map((banner, index) => (
+          <div
+            key={banner.id}
+            className={`absolute inset-0 transition-opacity duration-1000 ${
+              index === atual ? 'opacity-100 z-10' : 'opacity-0 z-0'
+            }`}
+          >
+            <img
+              src={banner.imagem_url}
+              alt={banner.titulo || 'Banner institucional'}
+              className="w-full h-full object-cover scale-105"
+            />
+
+            <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent flex items-end">
+              <div className="p-8 md:p-16 max-w-7xl mx-auto w-full pb-12 md:pb-16">
+                {banner.titulo && (
+                  <h2 className="text-white text-3xl md:text-5xl lg:text-6xl font-extrabold drop-shadow-lg max-w-3xl leading-tight tracking-tight">
+                    {banner.titulo}
+                  </h2>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        ))}
 
-      {/* Botões de controle */}
-      {banners.length > 1 && (
-        <>
-          <button
-            onClick={anterior}
-            className="absolute left-4 top-1/2 -translate-y-1/2 z-20 bg-white/30 hover:bg-white/80 p-2 rounded-full backdrop-blur transition-all"
-          >
-            <ChevronLeft className="text-slate-800" size={28} />
-          </button>
-          <button
-            onClick={proximo}
-            className="absolute right-4 top-1/2 -translate-y-1/2 z-20 bg-white/30 hover:bg-white/80 p-2 rounded-full backdrop-blur transition-all"
-          >
-            <ChevronRight className="text-slate-800" size={28} />
-          </button>
-          
-          {/* Bolinhas indicadoras */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-2">
-            {banners.map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => setAtual(idx)} // Deixei as bolinhas clicáveis!
-                className={`h-2 rounded-full transition-all ${
-                  idx === atual ? 'w-8 bg-blue-500' : 'w-2 bg-white/50 hover:bg-white/80'
-                }`}
-              />
-            ))}
-          </div>
-        </>
-      )}
+        {banners.length > 1 && (
+          <>
+            <button
+              onClick={anterior}
+              aria-label="Banner anterior"
+              className="absolute left-4 top-1/2 -translate-y-1/2 z-20 bg-white/20 hover:bg-white/90 p-3 rounded-full backdrop-blur-md border border-white/20 transition-all shadow-lg"
+            >
+              <ChevronLeft className="text-white hover:text-slate-900" size={24} />
+            </button>
+            <button
+              onClick={proximo}
+              aria-label="Próximo banner"
+              className="absolute right-4 top-1/2 -translate-y-1/2 z-20 bg-white/20 hover:bg-white/90 p-3 rounded-full backdrop-blur-md border border-white/20 transition-all shadow-lg"
+            >
+              <ChevronRight className="text-white hover:text-slate-900" size={24} />
+            </button>
+
+            <div className="absolute bottom-6 md:bottom-8 left-1/2 -translate-x-1/2 z-20 flex gap-2">
+              {banners.map((_, idx) => (
+                <button
+                  key={idx}
+                  aria-label={`Ir para banner ${idx + 1}`}
+                  onClick={() => setAtual(idx)}
+                  className={`h-2 rounded-full transition-all ${
+                    idx === atual ? 'w-8 bg-blue-400' : 'w-2 bg-white/40 hover:bg-white/70'
+                  }`}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

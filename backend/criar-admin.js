@@ -1,8 +1,12 @@
+require('dotenv/config');
 const { PrismaClient } = require('@prisma/client');
+const { PrismaPg } = require('@prisma/adapter-pg');
+const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
 
-const bcrypt = require('bcrypt'); 
-
-const prisma = new PrismaClient();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   console.log('Gerando senha criptografada...');
@@ -11,17 +15,15 @@ async function main() {
   console.log('Criando usuário no banco de dados...');
   const admin = await prisma.usuario.upsert({
     where: { email: 'smsti@gmail.com' },
-    update: {}, 
+    update: {},
     create: {
       nome: 'Administrador TI',
       email: 'smsti@gmail.com',
       senha: senhaHash,
       cargo: 'Gestor de TI',
-      
-      // 👇 Adicionando o status e a permissão exata que você pediu
       status: 'APROVADO',
-      permissoes: ['admin']
-    }
+      permissoes: ['admin'],
+    },
   });
 
   console.log('\n✅ Usuário criado com sucesso!');
@@ -32,4 +34,7 @@ async function main() {
 
 main()
   .catch((e) => console.error('\n❌ Erro ao criar:', e))
-  .finally(async () => await prisma.$disconnect());
+  .finally(async () => {
+    await prisma.$disconnect();
+    await pool.end();
+  });

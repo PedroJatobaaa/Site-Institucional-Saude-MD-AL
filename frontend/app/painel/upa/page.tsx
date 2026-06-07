@@ -4,19 +4,18 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Activity, ArrowLeft, ClipboardList } from 'lucide-react';
+import { getUsuario } from '@/lib/auth/session';
 
 export default function ModuloUPA() {
   const router = useRouter();
   const [usuario, setUsuario] = useState<any>(null);
 
   useEffect(() => {
-    const userSalvo = localStorage.getItem('saude_usuario');
-    if (!userSalvo) {
-      router.push('/acesso');
+    const userObj = getUsuario();
+    if (!userObj) {
+      router.push('/login');
       return;
     }
-
-    const userObj = JSON.parse(userSalvo);
     if (!userObj.permissoes?.includes('upa_acesso') && !userObj.permissoes?.includes('admin')) {
       alert("Acesso restrito aos servidores da UPA.");
       router.push('/painel');

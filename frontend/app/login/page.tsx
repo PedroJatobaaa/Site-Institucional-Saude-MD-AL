@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { Mail, Lock, Eye, EyeOff, ShieldCheck, ArrowRight, KeyRound } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { salvarSessao } from '@/lib/auth/session';
 
 export default function Login() {
   const router = useRouter();
@@ -42,14 +43,9 @@ export default function Login() {
           return; // Para o fluxo de login aqui!
         }
 
-        // Se não precisar redefinir, faz o login normal:
-        if (dados.usuario) localStorage.setItem('saude_usuario', JSON.stringify(dados.usuario));
-        else localStorage.setItem('saude_usuario', JSON.stringify(dados));
-        
         if (dados.token) {
-          localStorage.setItem('token', dados.token);
-          localStorage.setItem('saude_token', dados.token); 
-          document.cookie = `token=${dados.token}; path=/; max-age=86400; SameSite=Strict`;
+          const usuario = dados.usuario ?? dados;
+          salvarSessao(dados.token, usuario);
         }
         
         setLoading(false);

@@ -3,6 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Shield, AlertCircle, Edit, X, CheckCircle, Search, KeyRound } from 'lucide-react';
 import Link from 'next/link';
+import UnidadeLotacaoSelect from '@/components/UnidadeLotacaoSelect';
+import {
+  aoMudarNivelLotacao,
+  hidratarLotacao,
+  lotacaoCompleta,
+} from '@/lib/usuarios/lotacao';
+import { getToken } from '@/lib/auth/session';
+import { FILAS_PRODUCAO } from '@/lib/producao/filasProducao';
 
 // Definimos as caixinhas (módulos) que você poderá liberar no sistema
 const permissoesDisponiveis = [
@@ -12,6 +20,9 @@ const permissoesDisponiveis = [
   { id: 'sistemas_esus', nome: 'Acesso Restrito ao e-SUS / PEC' },
   { id: 'upa_acesso', nome: 'Acessar Módulo UPA' },
   { id: 'central_marcacoes', nome: 'Acesso à Central das Marcações'},
+  { id: 'ROLE_UBS', nome: 'Produções — UBS (envio)' },
+  { id: 'ROLE_PROCESSAMENTO', nome: 'Produções — Processamento de Dados' },
+  { id: 'profissionais_gerenciar', nome: 'Cadastro de Profissionais (CRUD)' },
   { id: 'invig', nome: 'Acesso ao INVIG'},
   { id: 'admin', nome: 'Acesso Total (Administrador)' }
 ];
@@ -33,9 +44,18 @@ export default function PainelAdmin() {
     carregarUsuarios();
   }, []);
 
+  useEffect(() => {
+    if (!modalAberto) return;
+    const scrollAnterior = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = scrollAnterior;
+    };
+  }, [modalAberto]);
+
   const carregarUsuarios = async () => {
     try {
-      const token = localStorage.getItem('saude_token');
+      const token = getToken();
 
       const res = await fetch('/api/admin/usuarios', {
         headers: {
@@ -61,9 +81,20 @@ export default function PainelAdmin() {
 
   // 2. Abre a janela para editar um usuário específico
   const abrirEdicao = (usuario: any) => {
-    setUserEditando({ ...usuario });
+    const lotacao = hidratarLotacao(usuario);
+    setUserEditando({
+      ...usuario,
+      nivelLotacao: lotacao.nivelLotacao,
+      unidadeLotacao: lotacao.unidadeLotacao,
+      permissoesProducao: Array.isArray(usuario.permissoesProducao)
+        ? usuario.permissoesProducao
+        : [],
+    });
     setModalAberto(true);
   };
+
+  const temPermissaoEnvioProducao = (permissoes: string[] = []) =>
+    permissoes.includes('ROLE_UBS');
 
   // 3. Marca/Desmarca a caixinha de permissão no estado local
   const togglePermissao = (idPermissao: string) => {
@@ -75,13 +106,41 @@ export default function PainelAdmin() {
     } else {
       novasPermissoes = [...userEditando.permissoes, idPermissao];
     }
-    setUserEditando({ ...userEditando, permissoes: novasPermissoes });
+
+    const atualizacao: Record<string, unknown> = { ...userEditando, permissoes: novasPermissoes };
+
+    if (idPermissao === 'ROLE_UBS' && temPermissao) {
+      atualizacao.permissoesProducao = [];
+    }
+
+    setUserEditando(atualizacao);
+  };
+
+  const togglePermissaoProducao = (filaId: string) => {
+    const atuais: string[] = userEditando.permissoesProducao || [];
+    const novas = atuais.includes(filaId)
+      ? atuais.filter((id) => id !== filaId)
+      : [...atuais, filaId];
+    setUserEditando({ ...userEditando, permissoesProducao: novas });
   };
 
   // 4. Salva as alterações no Backend
   const salvarAlteracoes = async () => {
+    if (!lotacaoCompleta(userEditando.nivelLotacao, userEditando.unidadeLotacao)) {
+      alert('Selecione a categoria e a unidade de lotação.');
+      return;
+    }
+
+    const envioProducaoAtivo = temPermissaoEnvioProducao(userEditando.permissoes);
+    const filasSelecionadas: string[] = userEditando.permissoesProducao || [];
+
+    if (envioProducaoAtivo && filasSelecionadas.length === 0) {
+      alert('Selecione ao menos uma fila de envio (Unidade + Sistema) para o usuário de produções.');
+      return;
+    }
+
     try {
-      const token = localStorage.getItem('saude_token');
+      const token = getToken();
 
       const res = await fetch(`/api/admin/usuarios/${userEditando.id}`, {
         method: 'PUT',
@@ -91,7 +150,10 @@ export default function PainelAdmin() {
         },
         body: JSON.stringify({
           status: userEditando.status,
-          permissoes: userEditando.permissoes
+          permissoes: userEditando.permissoes,
+          nivel_lotacao: userEditando.nivelLotacao,
+          unidade_lotacao: userEditando.unidadeLotacao,
+          permissoes_producao: envioProducaoAtivo ? filasSelecionadas : [],
         })
       });
 
@@ -117,7 +179,7 @@ export default function PainelAdmin() {
 
     setLoadingSenha(true);
     try {
-      const token = localStorage.getItem('saude_token');
+      const token = getToken();
       const res = await fetch(`/api/admin/usuarios/${userEditando.id}/forcar-senha`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
@@ -206,8 +268,15 @@ export default function PainelAdmin() {
                       <td className="p-4">
                         <div className="font-bold text-slate-800">{user.nome}</div>
                         <div className="text-sm text-slate-500 mt-0.5">
-                          {user.cargo} 
-                          {user.unidade ? <span className="text-slate-400 font-medium"> &bull; {user.unidade}</span> : ''}
+                          {user.cargo}
+                          {user.nivelLotacao || user.unidadeLotacao || user.unidade ? (
+                            <span className="text-slate-400 font-medium">
+                              {' '}&bull; {user.nivelLotacao || '—'}
+                              {(user.unidadeLotacao || user.unidade) && (
+                                <> &mdash; {user.unidadeLotacao || user.unidade}</>
+                              )}
+                            </span>
+                          ) : ''}
                         </div>
                       </td>
                       
@@ -246,33 +315,48 @@ export default function PainelAdmin() {
 
       {/* MODAL DE EDIÇÃO */}
       {modalAberto && userEditando && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6">
+          <button
+            type="button"
+            aria-label="Fechar"
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => setModalAberto(false)}
+          />
+
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-gerenciar-titulo"
+            className="relative z-10 flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            style={{ height: 'min(92dvh, 780px)' }}
+          >
             
             {/* Header do Modal */}
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <div>
-                <h3 className="text-xl font-bold text-slate-800">Gerenciar Acessos</h3>
-                <p className="text-sm text-slate-500 mt-1">
+            <div className="shrink-0 border-b border-slate-100 bg-slate-50 px-4 py-3 sm:px-5 sm:py-4 flex justify-between items-start gap-3">
+              <div className="min-w-0">
+                <h3 id="modal-gerenciar-titulo" className="text-lg font-bold text-slate-800">Gerenciar Acessos</h3>
+                <p className="text-sm text-slate-500 mt-0.5 truncate">
                   Editando: <span className="font-semibold text-slate-700">{userEditando.nome}</span>
-                  {userEditando.unidade && <span className="text-slate-400"> ({userEditando.unidade})</span>}
+                  {userEditando.unidadeLotacao && (
+                    <span className="text-slate-400"> ({userEditando.unidadeLotacao})</span>
+                  )}
                 </p>
               </div>
-              <button onClick={() => setModalAberto(false)} className="text-slate-400 hover:text-slate-600 p-1 bg-white rounded-lg shadow-sm">
-                <X size={24} />
+              <button onClick={() => setModalAberto(false)} className="shrink-0 text-slate-400 hover:text-slate-600 p-1 bg-white rounded-lg shadow-sm">
+                <X size={22} />
               </button>
             </div>
 
-            <div className="p-6 space-y-8">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 space-y-4">
               
               {/* Seção 1: Segurança e Status (Lado a Lado) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <h4 className="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wider">Situação da Conta</h4>
+                  <h4 className="text-xs font-bold text-slate-800 mb-2 uppercase tracking-wider">Situação da Conta</h4>
                   <select 
                     value={userEditando.status}
                     onChange={(e) => setUserEditando({...userEditando, status: e.target.value})}
-                    className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 focus:ring-2 focus:ring-blue-600 outline-none font-medium text-slate-700"
+                    className="w-full p-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:ring-2 focus:ring-blue-600 outline-none font-medium text-slate-700 text-sm"
                   >
                     <option value="PENDENTE">Em Análise (Pendente)</option>
                     <option value="APROVADO">Acesso Liberado (Aprovado)</option>
@@ -281,54 +365,180 @@ export default function PainelAdmin() {
                 </div>
 
                 <div>
-                   <h4 className="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wider">Segurança</h4>
-                   {/* 👇 AQUI ESTÁ O NOVO BOTÃO DE REDEFINIR SENHA 👇 */}
+                   <h4 className="text-xs font-bold text-slate-800 mb-2 uppercase tracking-wider">Segurança</h4>
                    <button
                     type="button"
                     onClick={forcarRedefinicaoSenha}
                     disabled={loadingSenha}
-                    className="w-full flex items-center justify-center gap-2 p-3 border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl font-bold transition-colors disabled:opacity-70"
+                    className="w-full flex items-center justify-center gap-2 p-2.5 border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl font-bold text-sm transition-colors disabled:opacity-70"
                    >
-                     <KeyRound size={18} />
+                     <KeyRound size={16} />
                      {loadingSenha ? 'Processando...' : 'Exigir Nova Senha'}
                    </button>
-                   <p className="text-[10px] text-slate-400 mt-1.5 text-center">
+                   <p className="text-[10px] text-slate-400 mt-1 text-center">
                      O usuário será forçado a trocar a senha no próximo login.
                    </p>
                 </div>
               </div>
 
-              {/* Seção 2: Permissões */}
+              {/* Seção 2: Unidade de Lotação */}
               <div>
-                <h4 className="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wider">Módulos Liberados</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {permissoesDisponiveis.map((perm) => (
-                    <label 
-                      key={perm.id} 
-                      className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${userEditando.permissoes.includes(perm.id) ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-white border-slate-200 hover:border-blue-100'}`}
-                    >
-                      <input 
-                        type="checkbox" 
-                        checked={userEditando.permissoes.includes(perm.id)}
-                        onChange={() => togglePermissao(perm.id)}
-                        className="mt-1 w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
-                      />
-                      <span className={`text-sm font-medium ${userEditando.permissoes.includes(perm.id) ? 'text-blue-900' : 'text-slate-600'}`}>
-                        {perm.nome}
-                      </span>
-                    </label>
-                  ))}
+                <h4 className="text-xs font-bold text-slate-800 mb-2 uppercase tracking-wider">Unidade de Lotação</h4>
+                <UnidadeLotacaoSelect
+                  required
+                  compact
+                  showIcon={false}
+                  nivelLotacao={userEditando.nivelLotacao || ''}
+                  unidadeLotacao={userEditando.unidadeLotacao || ''}
+                  selectClassName="w-full p-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:ring-2 focus:ring-blue-600 outline-none font-medium text-slate-700 appearance-none text-sm"
+                  labelClassName="block text-xs font-bold text-slate-600 uppercase mb-1"
+                  onNivelChange={(nivel) => {
+                    const lotacao = aoMudarNivelLotacao(nivel);
+                    setUserEditando({
+                      ...userEditando,
+                      nivelLotacao: lotacao.nivelLotacao,
+                      unidadeLotacao: lotacao.unidadeLotacao,
+                    });
+                  }}
+                  onUnidadeChange={(unidade) =>
+                    setUserEditando({ ...userEditando, unidadeLotacao: unidade })
+                  }
+                />
+              </div>
+
+              {/* Seção 3: Permissões de Módulos */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-800 mb-2 uppercase tracking-wider">Módulos Liberados</h4>
+                <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-2 max-h-[16rem] overflow-y-auto">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {permissoesDisponiveis.map((perm) => {
+                      if (perm.id === 'ROLE_UBS') {
+                        const envioAtivo = temPermissaoEnvioProducao(userEditando.permissoes);
+                        const filasMarcadas = (userEditando.permissoesProducao || []).length;
+
+                        return (
+                          <div key={perm.id} className="sm:col-span-2 space-y-2">
+                            <label
+                              className={`flex items-start gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
+                                envioAtivo
+                                  ? 'bg-blue-50 border-blue-200'
+                                  : 'bg-white border-slate-200 hover:border-blue-100'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={envioAtivo}
+                                onChange={() => togglePermissao(perm.id)}
+                                className="mt-0.5 w-4 h-4 text-blue-600 rounded focus:ring-blue-500 shrink-0"
+                              />
+                              <span className="min-w-0">
+                                <span
+                                  className={`block text-xs font-medium leading-snug ${
+                                    envioAtivo ? 'text-blue-900' : 'text-slate-600'
+                                  }`}
+                                >
+                                  {perm.nome}
+                                </span>
+                                {envioAtivo && (
+                                  <span className="block text-[10px] text-blue-600 mt-0.5">
+                                    {filasMarcadas > 0
+                                      ? `${filasMarcadas} fila(s) selecionada(s)`
+                                      : 'Selecione abaixo por qual fila enviar'}
+                                  </span>
+                                )}
+                              </span>
+                            </label>
+
+                            {envioAtivo && (
+                              <div className="ml-4 sm:ml-6 pl-3 border-l-2 border-emerald-300 space-y-2">
+                                <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
+                                  Filas de envio permitidas
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/60 p-2 max-h-[9rem] overflow-y-auto">
+                                  {FILAS_PRODUCAO.map((fila) => {
+                                    const selecionada = (userEditando.permissoesProducao || []).includes(
+                                      fila.id
+                                    );
+                                    return (
+                                      <label
+                                        key={fila.id}
+                                        className={`flex items-start gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
+                                          selecionada
+                                            ? 'bg-emerald-100 border-emerald-300'
+                                            : 'bg-white border-slate-200 hover:border-emerald-200'
+                                        }`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={selecionada}
+                                          onChange={() => togglePermissaoProducao(fila.id)}
+                                          className="mt-0.5 w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 shrink-0"
+                                        />
+                                        <span className="min-w-0">
+                                          <span
+                                            className={`block text-xs font-bold leading-snug ${
+                                              selecionada ? 'text-emerald-900' : 'text-slate-700'
+                                            }`}
+                                          >
+                                            {fila.unidade}
+                                          </span>
+                                          <span
+                                            className={`block text-[10px] font-medium ${
+                                              selecionada ? 'text-emerald-700' : 'text-slate-500'
+                                            }`}
+                                          >
+                                            via {fila.sistema}
+                                          </span>
+                                        </span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <label
+                          key={perm.id}
+                          className={`flex items-start gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
+                            userEditando.permissoes.includes(perm.id)
+                              ? 'bg-blue-50 border-blue-200'
+                              : 'bg-white border-slate-200 hover:border-blue-100'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={userEditando.permissoes.includes(perm.id)}
+                            onChange={() => togglePermissao(perm.id)}
+                            className="mt-0.5 w-4 h-4 text-blue-600 rounded focus:ring-blue-500 shrink-0"
+                          />
+                          <span
+                            className={`text-xs font-medium leading-snug ${
+                              userEditando.permissoes.includes(perm.id)
+                                ? 'text-blue-900'
+                                : 'text-slate-600'
+                            }`}
+                          >
+                            {perm.nome}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Footer do Modal */}
-            <div className="p-6 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
-              <button onClick={() => setModalAberto(false)} className="px-5 py-2.5 text-slate-600 font-medium hover:bg-slate-200 rounded-xl transition-colors">
+            <div className="shrink-0 border-t border-slate-100 bg-slate-50 px-4 py-3 sm:px-5 flex justify-end gap-2">
+              <button onClick={() => setModalAberto(false)} className="px-4 py-2 text-sm text-slate-600 font-medium hover:bg-slate-200 rounded-xl transition-colors">
                 Cancelar
               </button>
-              <button onClick={salvarAlteracoes} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl shadow-sm transition-colors flex items-center gap-2">
-                <CheckCircle size={18} /> Salvar Alterações
+              <button onClick={salvarAlteracoes} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl shadow-sm transition-colors flex items-center gap-2">
+                <CheckCircle size={16} /> Salvar Alterações
               </button>
             </div>
 

@@ -10,6 +10,22 @@ import jwt from 'jsonwebtoken';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
+import { registerProducaoRoutes } from './routes/producoes';
+import { registerProfissionalRoutes } from './routes/profissionais';
+import { validarLotacao } from './utils/validators/lotacao';
+import { validarIdsFilas } from './constants/filasProducao';
+import { limparNumeros } from './utils/validators/documentos';
+
+function calcularIdade(dataNascimento: string | null | undefined): number | null {
+  if (!dataNascimento) return null;
+  const nasc = new Date(dataNascimento);
+  if (Number.isNaN(nasc.getTime())) return null;
+  const hoje = new Date();
+  let idade = hoje.getFullYear() - nasc.getFullYear();
+  const mes = hoje.getMonth() - nasc.getMonth();
+  if (mes < 0 || (mes === 0 && hoje.getDate() < nasc.getDate())) idade--;
+  return idade >= 0 ? idade : null;
+}
 
 // 1. Configurando o Driver de Conexão do Prisma 7
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -50,6 +66,32 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage });
+
+const producoesPath = path.resolve(__dirname, '..', 'uploads', 'producoes');
+if (!fs.existsSync(producoesPath)) {
+  fs.mkdirSync(producoesPath, { recursive: true });
+}
+
+const storageProducao = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, producoesPath),
+  filename: (_req, file, cb) => {
+    const tempo = Date.now();
+    const nomeLimpo = file.originalname.replace(/\s/g, '_');
+    cb(null, `${tempo}-${nomeLimpo}`);
+  },
+});
+
+const uploadProducao = multer({
+  storage: storageProducao,
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (['.xlsx', '.xls', '.csv'].includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Apenas arquivos .xlsx, .xls ou .csv são permitidos.'));
+    }
+  },
+});
 
 // ---------------------------------------------------------
 // MIDDLEWARE DE SEGURANÇA
@@ -119,10 +161,15 @@ app.post('/api/auth/registrar', async (req, res): Promise<any> => {
   console.log("📦 DADOS RECEBIDOS:", req.body);
   
   try {
-    const { nome, email, senha, cargo, cpf, unidade } = req.body;
+    const { nome, email, senha, cargo, cpf, nivel_lotacao, unidade_lotacao } = req.body;
     
     if (!nome || !email || !senha || !cargo) {
       return res.status(400).json({ erro: 'Campos principais são obrigatórios.' });
+    }
+
+    const lotacao = validarLotacao(nivel_lotacao, unidade_lotacao);
+    if (!lotacao.ok) {
+      return res.status(400).json({ erro: lotacao.erro });
     }
 
     const usuarioExistente = await prisma.usuario.findUnique({ where: { email } });
@@ -140,8 +187,10 @@ app.post('/api/auth/registrar', async (req, res): Promise<any> => {
         email, 
         senha: senhaCriptografada, 
         cargo,
-        cpf,       
-        unidade    
+        cpf,
+        nivelLotacao: lotacao.dados.nivelLotacao,
+        unidadeLotacao: lotacao.dados.unidadeLotacao,
+        unidade: lotacao.dados.unidade,
       }
     });
 
@@ -183,7 +232,13 @@ app.post('/api/auth/login', async (req, res): Promise<any> => {
 
     // Se estiver tudo ok, faz o login normal
     const token = jwt.sign(
-      { id: usuario.id, nome: usuario.nome, cargo: usuario.cargo, permissoes: usuario.permissoes },
+      {
+        id: usuario.id,
+        nome: usuario.nome,
+        cargo: usuario.cargo,
+        permissoes: usuario.permissoes,
+        unidade: usuario.unidade,
+      },
       process.env.JWT_SECRET || 'segredo_fallback',
       { expiresIn: '8h' }
     );
@@ -236,14 +291,23 @@ app.get('/api/admin/usuarios', verificarToken, async (req: any, res: any): Promi
         email: true, 
         cargo: true, 
         cpf: true,      
-        unidade: true,  
+        unidade: true,
+        nivelLotacao: true,
+        unidadeLotacao: true,
         status: true, 
-        permissoes: true, 
+        permissoes: true,
+        permissoesProducao: { select: { filaId: true } },
         createdAt: true 
       },
       orderBy: { createdAt: 'desc' }
     });
-    return res.status(200).json(usuarios);
+
+    const usuariosFormatados = usuarios.map(({ permissoesProducao, ...usuario }) => ({
+      ...usuario,
+      permissoesProducao: permissoesProducao.map((p) => p.filaId),
+    }));
+
+    return res.status(200).json(usuariosFormatados);
   } catch (error) {
     return res.status(500).json({ erro: 'Falha ao buscar usuários.' });
   }
@@ -253,15 +317,71 @@ app.put('/api/admin/usuarios/:id', verificarToken, async (req: any, res: any): P
   try {
     if (!req.usuario.permissoes.includes('admin')) return res.status(403).json({ erro: 'Acesso negado.' });
     const { id } = req.params;
-    const { status, permissoes } = req.body;
+    const { status, permissoes, nivel_lotacao, unidade_lotacao, permissoes_producao } = req.body;
+
+    const dadosAtualizacao: {
+      status?: string;
+      permissoes?: string[];
+      nivelLotacao?: string;
+      unidadeLotacao?: string;
+      unidade?: string;
+    } = {};
+
+    if (status !== undefined) dadosAtualizacao.status = status;
+    if (permissoes !== undefined) dadosAtualizacao.permissoes = permissoes;
+
+    if (nivel_lotacao !== undefined || unidade_lotacao !== undefined) {
+      const lotacao = validarLotacao(nivel_lotacao, unidade_lotacao);
+      if (!lotacao.ok) {
+        return res.status(400).json({ erro: lotacao.erro });
+      }
+      dadosAtualizacao.nivelLotacao = lotacao.dados.nivelLotacao;
+      dadosAtualizacao.unidadeLotacao = lotacao.dados.unidadeLotacao;
+      dadosAtualizacao.unidade = lotacao.dados.unidade;
+    }
+
+    if (permissoes_producao !== undefined) {
+      const validacaoFilas = validarIdsFilas(permissoes_producao);
+      if (!validacaoFilas.ok) {
+        return res.status(400).json({ erro: validacaoFilas.erro });
+      }
+
+      await prisma.$transaction([
+        prisma.permissaoProducaoUsuario.deleteMany({ where: { usuarioId: id } }),
+        ...(validacaoFilas.ids.length > 0
+          ? [
+              prisma.permissaoProducaoUsuario.createMany({
+                data: validacaoFilas.ids.map((filaId) => ({ usuarioId: id, filaId })),
+              }),
+            ]
+          : []),
+      ]);
+    }
 
     const usuarioAtualizado = await prisma.usuario.update({
       where: { id },
-      data: { status, permissoes },
-      select: { id: true, nome: true, status: true, permissoes: true }
+      data: dadosAtualizacao,
+      select: {
+        id: true,
+        nome: true,
+        status: true,
+        permissoes: true,
+        nivelLotacao: true,
+        unidadeLotacao: true,
+        unidade: true,
+        permissoesProducao: { select: { filaId: true } },
+      }
     });
 
-    return res.status(200).json({ mensagem: 'Acessos atualizados!', usuario: usuarioAtualizado });
+    const { permissoesProducao, ...resto } = usuarioAtualizado;
+
+    return res.status(200).json({
+      mensagem: 'Acessos atualizados!',
+      usuario: {
+        ...resto,
+        permissoesProducao: permissoesProducao.map((p) => p.filaId),
+      },
+    });
   } catch (error) {
     return res.status(500).json({ erro: 'Falha ao atualizar.' });
   }
@@ -457,15 +577,20 @@ app.get('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promis
     }
 
     console.log("⏳ Consultando o banco de dados Prisma...");
-    
+
+    const termoLimpo = limparNumeros(termoBusca);
+    const condicoesBusca: Record<string, unknown>[] = [
+      { nome: { contains: termoBusca, mode: 'insensitive' } },
+      { cpf: { contains: termoBusca } },
+      { cns: { contains: termoBusca } },
+    ];
+    if (termoLimpo.length >= 3 && termoLimpo !== termoBusca) {
+      condicoesBusca.push({ cpf: { contains: termoLimpo } });
+      condicoesBusca.push({ cns: { contains: termoLimpo } });
+    }
+
     const pacientes = await prisma.paciente.findMany({
-      where: {
-        OR: [
-          { nome: { contains: termoBusca, mode: 'insensitive' } },
-          { cpf: { contains: termoBusca } },
-          { cns: { contains: termoBusca } }
-        ]
-      },
+      where: { OR: condicoesBusca },
       take: 15
     });
 
@@ -492,15 +617,19 @@ app.post('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promi
       return res.status(400).json({ erro: 'O nome do paciente é obrigatório.' });
     }
 
-    if (cpf) {
-      const pacienteExistente = await prisma.paciente.findUnique({ where: { cpf } });
+    const cpfNorm = cpf ? limparNumeros(cpf) || null : null;
+    const cnsNorm = cns ? limparNumeros(cns) || null : null;
+    const idadeFinal = idade != null && idade !== '' ? Number(idade) : calcularIdade(data_nascimento);
+
+    if (cpfNorm) {
+      const pacienteExistente = await prisma.paciente.findUnique({ where: { cpf: cpfNorm } });
       if (pacienteExistente) {
         return res.status(400).json({ erro: 'Este CPF já está cadastrado no sistema.' });
       }
     }
 
-    if (cns) {
-      const cnsExistente = await prisma.paciente.findUnique({ where: { cns } });
+    if (cnsNorm) {
+      const cnsExistente = await prisma.paciente.findUnique({ where: { cns: cnsNorm } });
       if (cnsExistente) {
         return res.status(400).json({ erro: 'Este CNS já está cadastrado no sistema.' });
       }
@@ -508,11 +637,11 @@ app.post('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promi
 
     const novoPaciente = await prisma.paciente.create({
       data: { 
-        cpf: cpf || null, 
-        cns: cns || null,
-        nome, 
+        cpf: cpfNorm, 
+        cns: cnsNorm,
+        nome: nome.toUpperCase().trim(), 
         data_nascimento: data_nascimento || null, 
-        idade: idade ? Number(idade) : null, 
+        idade: idadeFinal, 
         sexo: sexo || null, 
         registro_hc: registro_hc || null 
       }
@@ -531,10 +660,8 @@ app.patch('/api/upa/pacientes/:id', verificarToken, async (req: any, res: any): 
     const { id } = req.params;
     const { cpf, cns, nome, data_nascimento, registro_hc } = req.body;
 
-    // Se o frontend enviar com máscara (ex: 123.456.789-10), limpamos antes de salvar. 
-    // Mas se o seu frontend envia com a máscara pq você quer manter assim, pode remover esse .replace
-    const cpfLimpo = cpf; 
-    const cnsLimpo = cns;
+    const cpfLimpo = cpf ? limparNumeros(cpf) || null : null;
+    const cnsLimpo = cns ? limparNumeros(cns) || null : null;
 
     if (cpfLimpo) {
       const conflito = await prisma.paciente.findFirst({
@@ -625,6 +752,16 @@ app.get('/api/upa/pacientes/:id/prescricoes', verificarToken, async (req: any, r
     return res.status(500).json({ erro: 'Falha ao carregar o histórico.' });
   }
 });
+
+// ---------------------------------------------------------
+// MÓDULO DE PRODUÇÕES (UBS x PROCESSAMENTO)
+// ---------------------------------------------------------
+registerProducaoRoutes(app, { prisma, verificarToken, uploadProducao });
+
+// ---------------------------------------------------------
+// MÓDULO CADASTRO DE PROFISSIONAIS
+// ---------------------------------------------------------
+registerProfissionalRoutes(app, { prisma, verificarToken });
 
 // 1. Log de Auditoria (Coloque logo após o 'const app = express()')
 app.use((req, res, next) => {

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { ReceitaPDF } from './ReceitaPDF';
+import { getToken } from '@/lib/auth/session';
 
 export default function NovaPrescricao() {
   const router = useRouter();
@@ -17,6 +18,8 @@ export default function NovaPrescricao() {
   // Estados do Paciente e Busca
   const [busca, setBusca] = useState('');
   const [resultadosBusca, setResultadosBusca] = useState<any[]>([]);
+  const [erroBusca, setErroBusca] = useState('');
+  const [buscando, setBuscando] = useState(false);
   const [pacienteSelecionado, setPacienteSelecionado] = useState<any>(null);
   const [editando, setEditando] = useState(false);
   
@@ -99,7 +102,7 @@ export default function NovaPrescricao() {
     }
 
     try {
-      const token = localStorage.getItem('saude_token');
+      const token = getToken();
       const res = await fetch('/api/upa/prescricoes', {
         method: 'POST',
         headers: { 
@@ -125,18 +128,36 @@ export default function NovaPrescricao() {
   useEffect(() => {
     if (busca.length < 3) {
       setResultadosBusca([]);
+      setErroBusca('');
+      setBuscando(false);
       return;
     }
     const timer = setTimeout(async () => {
+      setBuscando(true);
+      setErroBusca('');
       try {
-        const token = localStorage.getItem('saude_token');
-        const res = await fetch(`/api/upa/pacientes?q=${busca}`, {
+        const token = getToken();
+        const res = await fetch(`/api/upa/pacientes?q=${encodeURIComponent(busca)}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const dados = await res.json();
-        if (Array.isArray(dados)) setResultadosBusca(dados);
+        if (!res.ok) {
+          setResultadosBusca([]);
+          setErroBusca(dados.erro || 'Erro ao buscar pacientes.');
+          return;
+        }
+        if (Array.isArray(dados)) {
+          setResultadosBusca(dados);
+          if (dados.length === 0) {
+            setErroBusca('Nenhum paciente encontrado.');
+          }
+        }
       } catch (error) {
         console.error("Erro ao buscar pacientes:", error);
+        setResultadosBusca([]);
+        setErroBusca('Erro de conexão ao buscar pacientes.');
+      } finally {
+        setBuscando(false);
       }
     }, 500);
     return () => clearTimeout(timer);
@@ -149,7 +170,7 @@ export default function NovaPrescricao() {
     setEditando(false);
     setHistorico([]);
     try {
-      const token = localStorage.getItem('saude_token');
+      const token = getToken();
       const res = await fetch(`/api/upa/pacientes/${paciente.id}/prescricoes`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -164,7 +185,7 @@ export default function NovaPrescricao() {
 
   const salvarEdicaoPaciente = async () => {
     try {
-      const token = localStorage.getItem('saude_token');
+      const token = getToken();
       const res = await fetch(`/api/upa/pacientes/${pacienteSelecionado.id}`, {
         method: 'PATCH',
         headers: { 
@@ -193,7 +214,7 @@ export default function NovaPrescricao() {
   const handleCadastrarPaciente = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoadingCadastro(true);
-    const token = localStorage.getItem('saude_token');
+    const token = getToken();
     try {
       const res = await fetch('/api/upa/pacientes', {
         method: 'POST',
@@ -208,7 +229,11 @@ export default function NovaPrescricao() {
         setPacienteSelecionado(dados);
         setModalAberto(false);
         setNovoPaciente({ cpf: '', nome: '', data_nascimento: '', sexo: '', registro_hc: '' });
+      } else {
+        alert(dados.erro || 'Falha ao cadastrar paciente.');
       }
+    } catch {
+      alert('Erro de conexão ao cadastrar paciente.');
     } finally {
       setLoadingCadastro(false);
     }
@@ -281,6 +306,12 @@ export default function NovaPrescricao() {
                   onChange={(e) => setBusca(e.target.value)}
                 />
                 
+                {buscando && (
+                  <p className="mt-1 text-xs text-slate-500 font-medium">Buscando...</p>
+                )}
+                {!buscando && erroBusca && (
+                  <p className="mt-1 text-xs text-amber-700 font-bold">{erroBusca}</p>
+                )}
                 {resultadosBusca.length > 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-60 overflow-y-auto">
                     {resultadosBusca.map(pac => (

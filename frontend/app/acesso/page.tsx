@@ -2,8 +2,13 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { User, Mail, Lock, Building, Briefcase, Eye, EyeOff } from 'lucide-react';
+import { User, Mail, Lock, Briefcase, Eye, EyeOff } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import UnidadeLotacaoSelect from '@/components/UnidadeLotacaoSelect';
+import {
+  aoMudarNivelLotacao,
+  lotacaoCompleta,
+} from '@/lib/usuarios/lotacao';
 
 export default function SolicitarAcesso() {
   const router = useRouter();
@@ -12,7 +17,8 @@ export default function SolicitarAcesso() {
   const [formData, setFormData] = useState({
     nome: '',
     cpf: '',
-    unidade: '',
+    nivelLotacao: '',
+    unidadeLotacao: '',
     cargo: '',
     email: '',
     senha: '',
@@ -68,6 +74,10 @@ export default function SolicitarAcesso() {
       alert("⚠️ É necessário aceitar o Termo de Sigilo para solicitar o acesso.");
       return;
     }
+    if (!lotacaoCompleta(formData.nivelLotacao, formData.unidadeLotacao)) {
+      alert("⚠️ Selecione a categoria e a unidade de lotação.");
+      return;
+    }
 
     setLoading(true);
 
@@ -83,9 +93,9 @@ export default function SolicitarAcesso() {
           email: formData.email,
           senha: formData.senha,
           cargo: formData.cargo,
-          // O seu backend pede esses campos, então enviamos o que temos:
           cpf: formData.cpf,
-          unidade: formData.unidade
+          nivel_lotacao: formData.nivelLotacao,
+          unidade_lotacao: formData.unidadeLotacao,
         }),
       });
 
@@ -162,20 +172,22 @@ export default function SolicitarAcesso() {
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Unidade de Lotação *</label>
-                  <div className="relative">
-                    <Building size={18} className="absolute left-3 top-3.5 text-slate-400" />
-                    <select 
-                      required name="unidade" 
-                      value={formData.unidade} onChange={handleMudanca}
-                      className="w-full p-3 pl-10 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none appearance-none font-medium text-slate-700"
-                    >
-                      <option value="">Selecione a Unidade...</option>
-                      <option value="UPA Marechal Deodoro">UPA Marechal Deodoro</option>
-                      <option value="Secretaria de Saúde">Secretaria de Saúde</option>
-                      <option value="Atenção Básica (PSF)">Atenção Básica (UBS)</option>
-                    </select>
-                  </div>
+                  <UnidadeLotacaoSelect
+                    required
+                    nivelLotacao={formData.nivelLotacao}
+                    unidadeLotacao={formData.unidadeLotacao}
+                    onNivelChange={(nivel) => {
+                      const lotacao = aoMudarNivelLotacao(nivel);
+                      setFormData({
+                        ...formData,
+                        nivelLotacao: lotacao.nivelLotacao,
+                        unidadeLotacao: lotacao.unidadeLotacao,
+                      });
+                    }}
+                    onUnidadeChange={(unidade) =>
+                      setFormData({ ...formData, unidadeLotacao: unidade })
+                    }
+                  />
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Cargo / Função *</label>

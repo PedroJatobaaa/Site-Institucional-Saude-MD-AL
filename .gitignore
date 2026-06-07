@@ -1,0 +1,9 @@
+# Certificados e chaves (não versionar)
+certbot/
+
+# Ambiente
+.env
+.env.*
+
+# Uploads locais
+backend/uploads/

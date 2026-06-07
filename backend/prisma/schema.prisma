@@ -33,7 +33,7 @@ model Aviso {
   data_publicacao DateTime    @default(now())
   
   // 👇 ADICIONE O @db.Uuid NESTA LINHA 👇
-  coordenacaoId   String?     @db.Uuid
+  coordenacaoId   String?     @map("coordenacao_id") @db.Uuid
   coordenacao     Coordenacao? @relation(fields: [coordenacaoId], references: [id])
 
   @@map("avisos")
@@ -65,8 +65,10 @@ model Usuario {
   cargo      String
   
   // 👇 AS GAVETAS NOVAS AQUI 👇
-  cpf        String?
-  unidade    String?
+  cpf             String?
+  unidade         String?
+  nivelLotacao    String?  @map("nivel_lotacao")
+  unidadeLotacao  String?  @map("unidade_lotacao")
 
   status     UserStatus @default(PENDENTE)
 
@@ -78,7 +80,20 @@ model Usuario {
   updatedAt  DateTime   @updatedAt
   precisa_redefinir_senha Boolean @default(false)
 
+  permissoesProducao PermissaoProducaoUsuario[]
+
   @@map("usuarios")
+}
+
+model PermissaoProducaoUsuario {
+  id        String   @id @default(uuid())
+  usuarioId String   @map("usuario_id")
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  filaId    String   @map("fila_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([usuarioId, filaId])
+  @@map("permissoes_producao_usuario")
 }
 
 model Documento {
@@ -124,4 +139,211 @@ model Prescricao {
   status           String   @default("ATIVA") 
 
   @@map("prescricoes")
+}
+
+enum StatusProducao {
+  RECEBIDO
+  PROCESSANDO
+  DEVOLVIDO_PARA_AJUSTE
+  TRANSMITIDO
+}
+
+enum TipoEventoProducao {
+  ENVIO_ARQUIVO
+  PROCESSAMENTO
+  DEVOLUCAO
+  TRANSMISSAO
+  MENSAGEM
+  ALTERACAO_STATUS
+}
+
+enum TipoHistoricoProfissional {
+  CRIACAO
+  ALTERACAO
+}
+
+model UnidadeBasica {
+  id        String            @id @default(uuid())
+  nome      String            @unique
+  codigo    String?           @unique
+  ativo     Boolean           @default(true)
+  entregas  ProducaoEntrega[]
+
+  @@map("unidades_basicas")
+}
+
+model ProducaoEntrega {
+  id             String           @id @default(uuid())
+  unidadeId      String           @map("unidade_id")
+  unidade        UnidadeBasica    @relation(fields: [unidadeId], references: [id])
+  filaId         String           @map("fila_id")
+  competenciaMes Int              @map("competencia_mes")
+  competenciaAno Int              @map("competencia_ano")
+  status         StatusProducao   @default(RECEBIDO)
+  prazoFinal     DateTime         @map("prazo_final")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  eventos        ProducaoEvento[]
+  mensagens      ProducaoMensagem[]
+
+  @@unique([filaId, competenciaMes, competenciaAno])
+  @@map("producao_entregas")
+}
+
+model ProducaoEvento {
+  id          String             @id @default(uuid())
+  entregaId   String             @map("entrega_id")
+  entrega     ProducaoEntrega    @relation(fields: [entregaId], references: [id], onDelete: Cascade)
+  tipo        TipoEventoProducao
+  status      StatusProducao?
+  descricao   String
+  usuarioId   String?            @map("usuario_id")
+  usuarioNome String             @map("usuario_nome")
+  arquivoNome String?            @map("arquivo_nome")
+  arquivoUrl  String?            @map("arquivo_url")
+  createdAt   DateTime           @default(now()) @map("created_at")
+
+  @@map("producao_eventos")
+}
+
+model ProducaoMensagem {
+  id          String          @id @default(uuid())
+  entregaId   String          @map("entrega_id")
+  entrega     ProducaoEntrega @relation(fields: [entregaId], references: [id], onDelete: Cascade)
+  texto       String?
+  usuarioId   String          @map("usuario_id")
+  usuarioNome String          @map("usuario_nome")
+  arquivoNome String?         @map("arquivo_nome")
+  arquivoUrl  String?         @map("arquivo_url")
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  @@map("producao_mensagens")
+}
+
+model Profissional {
+  id                          String   @id @default(uuid())
+  cnes                        String?
+  nomeFantasiaEstabelecimento String?  @map("nome_fantasia_estabelecimento")
+  nomeProfissional            String   @map("nome_profissional")
+  pisPasep                    String?  @map("pis_pasep")
+  cpf                         String   @unique
+  numeroCns                   String?  @map("numero_cns")
+  sexo                        String?
+  nomeMae                     String?  @map("nome_mae")
+  nomePai                     String?  @map("nome_pai")
+  dataNascimento              DateTime? @map("data_nascimento") @db.Date
+  municipioNascimento         String?  @map("municipio_nascimento")
+  codigoIbgeMunicipioNascimento String? @map("codigo_ibge_municipio_nascimento")
+  ufNascimento                String?  @map("uf_nascimento")
+  racaCor                     String?  @map("raca_cor")
+  nacionalidade               String?
+  paisOrigem                  String?  @map("pais_origem")
+  dataEntrada                 DateTime? @map("data_entrada") @db.Date
+  dataNaturalizacao           DateTime? @map("data_naturalizacao") @db.Date
+  numeroPortaria              String?  @map("numero_portaria")
+  escolaridade                String?
+  situacaoFamiliarConjugal    String?  @map("situacao_familiar_conjugal")
+  frequentaEscola             Boolean  @default(false) @map("frequenta_escola")
+  ativo                       Boolean  @default(true)
+  criadoPorNome               String?  @map("criado_por_nome")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  documento      DocumentoProfissional?
+  endereco       EnderecoProfissional?
+  dadosBancarios DadosBancariosProfissional?
+  vinculos       VinculoProfissional[]
+  historico      ProfissionalHistorico[]
+
+  @@map("profissionais")
+}
+
+model ProfissionalHistorico {
+  id             String                    @id @default(uuid())
+  profissionalId String                    @map("profissional_id")
+  profissional   Profissional              @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+  tipo           TipoHistoricoProfissional
+  usuarioId      String?                   @map("usuario_id")
+  usuarioNome    String                    @map("usuario_nome")
+  alteracoes     Json
+  createdAt      DateTime                  @default(now()) @map("created_at")
+
+  @@map("profissional_historico")
+}
+
+model DocumentoProfissional {
+  id                   String   @id @default(uuid())
+  profissionalId       String   @unique @map("profissional_id")
+  profissional         Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+  tipoCertidao         String?  @map("tipo_certidao")
+  cartorio             String?
+  livro                String?
+  fls                  String?
+  termo                String?
+  dataEmissaoCertidao  DateTime? @map("data_emissao_certidao") @db.Date
+  rgNumero             String?  @map("rg_numero")
+  rgUf                 String?  @map("rg_uf")
+  rgOrgaoEmissor       String?  @map("rg_orgao_emissor")
+  rgDataEmissao        DateTime? @map("rg_data_emissao") @db.Date
+  tituloEleitor        String?  @map("titulo_eleitor")
+  zona                 String?
+  secao                String?
+  ctpsNumero           String?  @map("ctps_numero")
+  ctpsSerie            String?  @map("ctps_serie")
+  ctpsUf               String?  @map("ctps_uf")
+  ctpsDataEmissao      DateTime? @map("ctps_data_emissao") @db.Date
+
+  @@map("documentos_profissionais")
+}
+
+model EnderecoProfissional {
+  id                  String   @id @default(uuid())
+  profissionalId      String   @unique @map("profissional_id")
+  profissional        Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+  tipoLogradouro      String?  @map("tipo_logradouro")
+  logradouro          String?
+  numero              String?
+  complemento         String?
+  bairroDistrito      String?  @map("bairro_distrito")
+  municipioResidencia String?  @map("municipio_residencia")
+  codigoIbgeMunicipio String?  @map("codigo_ibge_municipio")
+  uf                  String?
+  cep                 String?
+  telefone            String?
+
+  @@map("enderecos_profissionais")
+}
+
+model DadosBancariosProfissional {
+  id             String   @id @default(uuid())
+  profissionalId String   @unique @map("profissional_id")
+  profissional   Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+  bancoCodigo    String?  @map("banco_codigo")
+  bancoNome      String?  @map("banco_nome")
+  agencia        String?
+  contaCorrente  String?  @map("conta_corrente")
+
+  @@map("dados_bancarios_profissionais")
+}
+
+model VinculoProfissional {
+  id                       String    @id @default(uuid())
+  profissionalId           String    @map("profissional_id")
+  profissional             Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+  registroConselhoClasse   String?   @map("registro_conselho_classe")
+  orgaoEmissor             String?   @map("orgao_emissor")
+  atendimentoSus           Boolean   @default(false) @map("atendimento_sus")
+  codigoVinculacao         String?   @map("codigo_vinculacao")
+  codigoTipo               String?   @map("codigo_tipo")
+  codigoSubTipo            String?   @map("codigo_sub_tipo")
+  cboCodigo                String?   @map("cbo_codigo")
+  cboDescricao             String?   @map("cbo_descricao")
+  cargaHorariaAmbulatorial Int?      @map("carga_horaria_ambulatorial")
+  cargaHorariaHospitalar   Int?      @map("carga_horaria_hospitalar")
+  cargaHorariaOutros       Int?      @map("carga_horaria_outros")
+  dataEntrada              DateTime? @map("data_entrada") @db.Date
+  dataDesligamento         DateTime? @map("data_desligamento") @db.Date
+  motivoDesligamento       String?   @map("motivo_desligamento")
+
+  @@map("vinculos_profissionais")
 }
