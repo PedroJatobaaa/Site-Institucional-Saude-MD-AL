@@ -20,6 +20,8 @@ type SnapshotComparavel = Omit<
 
 const ROTULOS_PROFISSIONAL: Record<string, string> = {
   cnes: 'CNES',
+  nivelLotacao: 'Categoria de lotação',
+  unidadeLotacao: 'Unidade de lotação',
   nomeFantasiaEstabelecimento: 'Nome fantasia do estabelecimento',
   nomeProfissional: 'Nome do profissional',
   pisPasep: 'PIS/PASEP',

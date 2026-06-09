@@ -13,6 +13,28 @@ import {
   validarCNS,
   validarPisPasep,
 } from '../utils/validators/documentos';
+import {
+  NIVEIS_LOTACAO,
+  inferirNivelPorUnidade,
+  validarLotacao,
+} from '../utils/validators/lotacao';
+
+function validarFiltrosListagem(nivelLotacao?: string, unidadeLotacao?: string): string | null {
+  if (nivelLotacao && !NIVEIS_LOTACAO.includes(nivelLotacao as (typeof NIVEIS_LOTACAO)[number])) {
+    return 'Categoria de lotação inválida.';
+  }
+
+  if (unidadeLotacao) {
+    if (nivelLotacao) {
+      const lotacao = validarLotacao(nivelLotacao, unidadeLotacao);
+      if (!lotacao.ok) return lotacao.erro;
+    } else if (!inferirNivelPorUnidade(unidadeLotacao)) {
+      return 'Unidade de lotação inválida.';
+    }
+  }
+
+  return null;
+}
 
 type UsuarioToken = {
   id: string;
@@ -43,6 +65,13 @@ function validarPayloadDocumentos(payload: ProfissionalCompletoPayload): string 
     return 'CNS inválido.';
   }
 
+  const lotacao = validarLotacao(profissional.nivelLotacao, profissional.unidadeLotacao);
+  if (!lotacao.ok) {
+    return lotacao.erro;
+  }
+  profissional.nivelLotacao = lotacao.dados.nivelLotacao;
+  profissional.unidadeLotacao = lotacao.dados.unidadeLotacao;
+
   return null;
 }
 
@@ -63,7 +92,19 @@ export function registerProfissionalRoutes(
       }
 
       const q = typeof req.query.q === 'string' ? req.query.q : undefined;
-      const lista = await listarProfissionais(prisma, q);
+      const nivelLotacao = typeof req.query.nivel_lotacao === 'string' ? req.query.nivel_lotacao : undefined;
+      const unidadeLotacao = typeof req.query.unidade_lotacao === 'string' ? req.query.unidade_lotacao : undefined;
+
+      const erroFiltro = validarFiltrosListagem(nivelLotacao, unidadeLotacao);
+      if (erroFiltro) {
+        return res.status(400).json({ erro: erroFiltro });
+      }
+
+      const lista = await listarProfissionais(prisma, {
+        q,
+        nivelLotacao,
+        unidadeLotacao,
+      });
       return res.json(lista);
     } catch (error) {
       console.error('Erro ao listar profissionais:', error);

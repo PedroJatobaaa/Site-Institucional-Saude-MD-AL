@@ -2,7 +2,9 @@
 
 import React, { useRef, useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
+import UnidadeLotacaoSelect from '@/components/UnidadeLotacaoSelect';
 import VinculosEditor from './VinculosEditor';
+import { aoMudarNivelLotacao, lotacaoCompleta } from '@/lib/usuarios/lotacao';
 import {
   mascaraCEP,
   mascaraCPF,
@@ -103,6 +105,9 @@ export default function ProfissionalForm({
       if (!validarCPF(p.cpf)) return 'CPF inválido.';
       if (p.pisPasep && !validarPisPasep(p.pisPasep)) return 'PIS/PASEP inválido.';
       if (p.numeroCns && !validarCNS(p.numeroCns)) return 'CNS inválido.';
+      if (!lotacaoCompleta(p.nivelLotacao || '', p.unidadeLotacao || '')) {
+        return 'Selecione a categoria e a unidade de lotação.';
+      }
     }
     return null;
   };
@@ -180,17 +185,32 @@ export default function ProfissionalForm({
           <>
             <section>
               <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Estabelecimento</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+              <div className="space-y-4">
+                <div className="max-w-xs">
                   <label className="text-xs font-bold text-slate-500 uppercase">CNES</label>
                   <input className={inputClass} value={p.cnes || ''} disabled={readOnly}
                     onChange={(e) => setProf('cnes', e.target.value)} />
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase">Nome fantasia estabelecimento</label>
-                  <input className={inputClass} value={p.nomeFantasiaEstabelecimento || ''} disabled={readOnly}
-                    onChange={(e) => setProf('nomeFantasiaEstabelecimento', e.target.value)} />
-                </div>
+                <UnidadeLotacaoSelect
+                  nivelLotacao={p.nivelLotacao || ''}
+                  unidadeLotacao={p.unidadeLotacao || ''}
+                  onNivelChange={(nivel) => {
+                    const lotacao = aoMudarNivelLotacao(nivel);
+                    onChange({
+                      ...data,
+                      profissional: {
+                        ...p,
+                        nivelLotacao: lotacao.nivelLotacao,
+                        unidadeLotacao: lotacao.unidadeLotacao,
+                      },
+                    });
+                  }}
+                  onUnidadeChange={(unidade) => setProf('unidadeLotacao', unidade)}
+                  required
+                  disabled={readOnly}
+                  selectClassName={selectClass}
+                  labelClassName="text-xs font-bold text-slate-500 uppercase mb-1"
+                />
               </div>
             </section>
 

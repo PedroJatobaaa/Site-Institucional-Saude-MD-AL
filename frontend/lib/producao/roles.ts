@@ -17,3 +17,7 @@ export function obterPerfilProducao(permissoes: string[] = []): PerfilProducao |
   if (isRoleUBS(permissoes)) return 'UBS';
   return null;
 }
+
+export function isAdminProducaoDashboard(permissoes: string[] = []) {
+  return permissoes.includes('admin');
+}

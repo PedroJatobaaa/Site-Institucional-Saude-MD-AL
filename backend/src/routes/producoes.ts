@@ -18,6 +18,13 @@ import {
 
 import { calculateDeadline, isPrazoExpirado } from '../utils/producaoDeadline';
 
+import {
+  calcularSituacaoPrazo,
+  dataPrimeiroEnvio,
+  entregaFoiEnviada,
+  type SituacaoPrazo,
+} from '../utils/producaoSituacao';
+
 
 
 type UsuarioToken = {
@@ -53,6 +60,14 @@ function isRoleProcessamento(permissoes: string[]) {
 function temAcessoProducoes(permissoes: string[]) {
 
   return isRoleUBS(permissoes) || isRoleProcessamento(permissoes);
+
+}
+
+
+
+function isAdmin(permissoes: string[]) {
+
+  return permissoes.includes('admin');
 
 }
 
@@ -250,6 +265,266 @@ export function registerProducaoRoutes(
 
 
 
+  app.get('/api/producoes/dashboard', verificarToken, async (req: any, res: Response): Promise<any> => {
+
+    try {
+
+      const { permissoes } = req.usuario as UsuarioToken;
+
+      if (!isAdmin(permissoes)) {
+
+        return res.status(403).json({ erro: 'Apenas administradores podem acessar o dashboard.' });
+
+      }
+
+
+
+      const { mes, ano, unidade, sistema } = req.query;
+
+      if (!mes || !ano) {
+
+        return res.status(400).json({ erro: 'Informe mes e ano.' });
+
+      }
+
+
+
+      const competenciaMes = Number(mes);
+
+      const competenciaAno = Number(ano);
+
+      if (
+
+        !Number.isInteger(competenciaMes) ||
+
+        competenciaMes < 1 ||
+
+        competenciaMes > 12 ||
+
+        !Number.isInteger(competenciaAno)
+
+      ) {
+
+        return res.status(400).json({ erro: 'Competência inválida.' });
+
+      }
+
+
+
+      let filasFiltradas = [...FILAS_PRODUCAO];
+
+      if (unidade) {
+
+        const unidadeStr = String(unidade);
+
+        filasFiltradas = filasFiltradas.filter(
+
+          (f) => f.unidade.toLowerCase() === unidadeStr.toLowerCase()
+
+        );
+
+      }
+
+      if (sistema) {
+
+        const sistemaStr = String(sistema);
+
+        filasFiltradas = filasFiltradas.filter(
+
+          (f) => f.sistema.toLowerCase() === sistemaStr.toLowerCase()
+
+        );
+
+      }
+
+
+
+      const filaIds = filasFiltradas.map((f) => f.id);
+
+      const entregas = await prisma.producaoEntrega.findMany({
+
+        where: {
+
+          competenciaMes,
+
+          competenciaAno,
+
+          filaId: { in: filaIds },
+
+        },
+
+        include: {
+
+          eventos: { orderBy: { createdAt: 'asc' } },
+
+        },
+
+      });
+
+
+
+      const entregaPorFila = new Map(entregas.map((e) => [e.filaId, e]));
+
+
+
+      type StatusProducao = 'RECEBIDO' | 'PROCESSANDO' | 'DEVOLVIDO_PARA_AJUSTE' | 'TRANSMITIDO';
+
+      const porStatus: Record<StatusProducao, number> = {
+
+        RECEBIDO: 0,
+
+        PROCESSANDO: 0,
+
+        DEVOLVIDO_PARA_AJUSTE: 0,
+
+        TRANSMITIDO: 0,
+
+      };
+
+
+
+      let enviadas = 0;
+
+      let noPrazo = 0;
+
+      let foraDoPrazo = 0;
+
+      let atrasadas = 0;
+
+      let emAberto = 0;
+
+
+
+      const filasDetalhe = filasFiltradas.map((fila) => {
+
+        const entrega = entregaPorFila.get(fila.id);
+
+        const prazoFinal = entrega
+
+          ? entrega.prazoFinal
+
+          : calculateDeadline(competenciaMes, competenciaAno);
+
+        const prazoExpirado = isPrazoExpirado(prazoFinal);
+
+        const eventos = entrega?.eventos ?? [];
+
+        const enviado = entregaFoiEnviada(eventos);
+
+        const situacaoPrazo: SituacaoPrazo = entrega
+
+          ? calcularSituacaoPrazo(entrega, prazoExpirado)
+
+          : prazoExpirado
+
+            ? 'ATRASADO'
+
+            : 'EM_ABERTO';
+
+        const primeiroEnvioData = dataPrimeiroEnvio(eventos);
+
+
+
+        if (enviado) enviadas += 1;
+
+        if (situacaoPrazo === 'NO_PRAZO') noPrazo += 1;
+
+        if (situacaoPrazo === 'FORA_DO_PRAZO') foraDoPrazo += 1;
+
+        if (situacaoPrazo === 'ATRASADO') atrasadas += 1;
+
+        if (situacaoPrazo === 'EM_ABERTO') emAberto += 1;
+
+
+
+        if (entrega) {
+
+          porStatus[entrega.status as StatusProducao] += 1;
+
+        }
+
+
+
+        return {
+
+          filaId: fila.id,
+
+          label: fila.label,
+
+          unidade: fila.unidade,
+
+          sistema: fila.sistema,
+
+          enviado,
+
+          situacaoPrazo,
+
+          status: entrega?.status ?? null,
+
+          dataPrimeiroEnvio: primeiroEnvioData?.toISOString() ?? null,
+
+          prazoFinal: prazoFinal.toISOString(),
+
+          prazoExpirado,
+
+        };
+
+      });
+
+
+
+      const totalFilas = filasFiltradas.length;
+
+      const naoEnviadas = totalFilas - enviadas;
+
+      const pct = (n: number) => (totalFilas > 0 ? Math.round((n / totalFilas) * 1000) / 10 : 0);
+
+
+
+      return res.json({
+
+        competencia: { mes: competenciaMes, ano: competenciaAno },
+
+        resumo: {
+
+          totalFilas,
+
+          enviadas,
+
+          naoEnviadas,
+
+          pctEnviadas: pct(enviadas),
+
+          pctNaoEnviadas: pct(naoEnviadas),
+
+          noPrazo,
+
+          foraDoPrazo,
+
+          atrasadas,
+
+          emAberto,
+
+          porStatus,
+
+        },
+
+        filas: filasDetalhe.sort((a, b) => a.label.localeCompare(b.label, 'pt-BR')),
+
+      });
+
+    } catch (error) {
+
+      console.error(error);
+
+      return res.status(500).json({ erro: 'Falha ao carregar dashboard.' });
+
+    }
+
+  });
+
+
+
   app.get('/api/producoes/competencia', verificarToken, async (req: any, res: Response): Promise<any> => {
 
     try {
@@ -380,21 +655,7 @@ export function registerProducaoRoutes(
 
 
 
-      const primeiroEnvio = entrega.eventos.find((e) => e.tipo === 'ENVIO_ARQUIVO');
-
-      let situacaoPrazo: 'EM_ABERTO' | 'NO_PRAZO' | 'ATRASADO' | 'FORA_DO_PRAZO' = 'EM_ABERTO';
-
-      if (primeiroEnvio) {
-
-        situacaoPrazo =
-
-          new Date(primeiroEnvio.createdAt) <= new Date(entrega.prazoFinal) ? 'NO_PRAZO' : 'FORA_DO_PRAZO';
-
-      } else if (prazoExpirado) {
-
-        situacaoPrazo = 'ATRASADO';
-
-      }
+      const situacaoPrazo = calcularSituacaoPrazo(entrega, prazoExpirado);
 
 
 

@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import type {
   DadosBancariosPayload,
   DocumentosPayload,
@@ -99,9 +99,18 @@ function mapVinculoData(v: VinculoPayload) {
   };
 }
 
+function unidadeVinculoLabel(p: {
+  unidadeLotacao: string | null;
+  nomeFantasiaEstabelecimento: string | null;
+}): string | null {
+  return p.unidadeLotacao || p.nomeFantasiaEstabelecimento || null;
+}
+
 function mapProfissionalData(p: ProfissionalCompletoPayload['profissional']) {
   return {
     cnes: p.cnes || null,
+    nivelLotacao: p.nivelLotacao || null,
+    unidadeLotacao: p.unidadeLotacao || null,
     nomeFantasiaEstabelecimento: p.nomeFantasiaEstabelecimento || null,
     nomeProfissional: p.nomeProfissional.trim(),
     pisPasep: p.pisPasep ? limparNumeros(p.pisPasep) : null,
@@ -125,20 +134,6 @@ function mapProfissionalData(p: ProfissionalCompletoPayload['profissional']) {
     frequentaEscola: p.frequentaEscola ?? false,
     ...(p.ativo !== undefined ? { ativo: p.ativo } : {}),
   };
-}
-
-function vinculoPrincipalLabel(vinculos: { cboDescricao: string | null; cboCodigo: string | null; dataDesligamento: Date | null; dataEntrada: Date | null }[]): string | null {
-  if (!vinculos.length) return null;
-  const ativos = vinculos.filter((v) => !v.dataDesligamento);
-  const lista = ativos.length ? ativos : [...vinculos].sort((a, b) => {
-    const da = a.dataEntrada?.getTime() ?? 0;
-    const db = b.dataEntrada?.getTime() ?? 0;
-    return db - da;
-  });
-  const v = lista[0];
-  if (v.cboDescricao) return v.cboDescricao;
-  if (v.cboCodigo) return `CBO ${v.cboCodigo}`;
-  return null;
 }
 
 function mapDocumentosResponse(doc: NonNullable<Awaited<ReturnType<typeof fetchProfissionalInclude>>['documento']>) {
@@ -184,9 +179,11 @@ function mapProfissionalDetalhe(p: NonNullable<Awaited<ReturnType<typeof fetchPr
     id: p.id,
     nomeProfissional: p.nomeProfissional,
     cpf: formatarCPF(p.cpf),
-    numeroCns: p.numeroCns ? formatarCNS(p.numeroCns) : null,
-    vinculoPrincipal: vinculoPrincipalLabel(p.vinculos),
     cnes: p.cnes,
+    vinculoPrincipal: unidadeVinculoLabel(p),
+    numeroCns: p.numeroCns ? formatarCNS(p.numeroCns) : null,
+    nivelLotacao: p.nivelLotacao,
+    unidadeLotacao: p.unidadeLotacao,
     nomeFantasiaEstabelecimento: p.nomeFantasiaEstabelecimento,
     pisPasep: p.pisPasep,
     sexo: p.sexo,
@@ -252,22 +249,49 @@ function mapProfissionalDetalhe(p: NonNullable<Awaited<ReturnType<typeof fetchPr
   };
 }
 
-export async function listarProfissionais(prisma: PrismaClient, q?: string): Promise<ProfissionalListItem[]> {
-  const busca = q?.trim();
-  const cpfBusca = busca ? limparNumeros(busca) : '';
+export type ListarProfissionaisFiltros = {
+  q?: string;
+  nivelLotacao?: string;
+  unidadeLotacao?: string;
+};
 
-  const where = busca
-    ? {
-        OR: [
-          { nomeProfissional: { contains: busca, mode: 'insensitive' as const } },
-          ...(cpfBusca.length >= 3 ? [{ cpf: { contains: cpfBusca } }] : []),
-        ],
-      }
-    : undefined;
+export async function listarProfissionais(
+  prisma: PrismaClient,
+  filtros?: ListarProfissionaisFiltros
+): Promise<ProfissionalListItem[]> {
+  const busca = filtros?.q?.trim();
+  const cpfBusca = busca ? limparNumeros(busca) : '';
+  const nivelLotacao = filtros?.nivelLotacao?.trim();
+  const unidadeLotacao = filtros?.unidadeLotacao?.trim();
+
+  const condicoes: Prisma.ProfissionalWhereInput[] = [];
+
+  if (busca) {
+    condicoes.push({
+      OR: [
+        { nomeProfissional: { contains: busca, mode: 'insensitive' } },
+        ...(cpfBusca.length >= 3 ? [{ cpf: { contains: cpfBusca } }] : []),
+      ],
+    });
+  }
+
+  if (nivelLotacao) {
+    condicoes.push({ nivelLotacao });
+  }
+
+  if (unidadeLotacao) {
+    condicoes.push({
+      OR: [
+        { unidadeLotacao },
+        { nomeFantasiaEstabelecimento: unidadeLotacao },
+      ],
+    });
+  }
+
+  const where = condicoes.length ? { AND: condicoes } : undefined;
 
   const lista = await prisma.profissional.findMany({
     where,
-    include: { vinculos: true },
     orderBy: { nomeProfissional: 'asc' },
   });
 
@@ -275,8 +299,8 @@ export async function listarProfissionais(prisma: PrismaClient, q?: string): Pro
     id: p.id,
     nomeProfissional: p.nomeProfissional,
     cpf: formatarCPF(p.cpf),
-    numeroCns: p.numeroCns ? formatarCNS(p.numeroCns) : null,
-    vinculoPrincipal: vinculoPrincipalLabel(p.vinculos),
+    cnes: p.cnes,
+    vinculoPrincipal: unidadeVinculoLabel(p),
     ativo: p.ativo,
   }));
 }

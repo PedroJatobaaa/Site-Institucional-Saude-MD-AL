@@ -30,6 +30,8 @@ import {
 
   Layers,
 
+  BarChart3,
+
 } from 'lucide-react';
 
 import {
@@ -51,6 +53,8 @@ import {
   temAcessoProducoes,
 
   isRoleProcessamento,
+
+  isAdminProducaoDashboard,
 
 } from '@/lib/producao/roles';
 
@@ -350,6 +354,8 @@ export default function ModuloProducoes() {
 
   const processamento = usuario ? isRoleProcessamento(usuario.permissoes) : false;
 
+  const adminDashboard = usuario ? isAdminProducaoDashboard(usuario.permissoes) : false;
+
   const prazoExpirado = dados?.prazoExpirado ?? false;
 
   const podeEnviar = dados?.podeEnviar ?? false;
@@ -546,11 +552,33 @@ export default function ModuloProducoes() {
 
           </div>
 
-          <span className="text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+          <div className="flex items-center gap-2">
 
-            {perfil === 'PROCESSAMENTO' ? 'Processamento' : 'Envio'}
+            {adminDashboard && (
 
-          </span>
+              <Link
+
+                href="/painel/producoes/dashboard"
+
+                className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider px-3 py-2 rounded-xl bg-violet-50 text-violet-700 border border-violet-100 hover:bg-violet-100 transition-colors"
+
+              >
+
+                <BarChart3 size={16} />
+
+                Dashboard
+
+              </Link>
+
+            )}
+
+            <span className="text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+
+              {perfil === 'PROCESSAMENTO' ? 'Processamento' : 'Envio'}
+
+            </span>
+
+          </div>
 
         </div>
 

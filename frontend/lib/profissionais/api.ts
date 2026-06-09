@@ -1,5 +1,6 @@
 import type { ProfissionalCompletoPayload, ProfissionalDetalhe, ProfissionalListItem } from './types';
 import { mascaraCPF, mascaraCNS, mascaraPIS } from './documentos';
+import { hidratarLotacao } from '@/lib/usuarios/lotacao';
 import { getToken } from '@/lib/auth/session';
 
 function authHeaders(): HeadersInit {
@@ -19,8 +20,20 @@ export async function lerErroApi(res: Response): Promise<string> {
   }
 }
 
-export async function listarProfissionais(q?: string): Promise<ProfissionalListItem[]> {
-  const url = q?.trim() ? `/api/profissionais?q=${encodeURIComponent(q.trim())}` : '/api/profissionais';
+export type ListarProfissionaisFiltros = {
+  q?: string;
+  nivelLotacao?: string;
+  unidadeLotacao?: string;
+};
+
+export async function listarProfissionais(filtros?: ListarProfissionaisFiltros): Promise<ProfissionalListItem[]> {
+  const params = new URLSearchParams();
+  if (filtros?.q?.trim()) params.set('q', filtros.q.trim());
+  if (filtros?.nivelLotacao) params.set('nivel_lotacao', filtros.nivelLotacao);
+  if (filtros?.unidadeLotacao) params.set('unidade_lotacao', filtros.unidadeLotacao);
+
+  const query = params.toString();
+  const url = query ? `/api/profissionais?${query}` : '/api/profissionais';
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error(await lerErroApi(res));
   return res.json();
@@ -53,9 +66,16 @@ export async function atualizarProfissional(id: string, payload: ProfissionalCom
 }
 
 export function detalheParaPayload(d: ProfissionalDetalhe): ProfissionalCompletoPayload {
+  const lotacao = hidratarLotacao({
+    nivelLotacao: d.nivelLotacao,
+    unidadeLotacao: d.unidadeLotacao ?? d.nomeFantasiaEstabelecimento,
+  });
+
   return {
     profissional: {
       cnes: d.cnes || '',
+      nivelLotacao: lotacao.nivelLotacao,
+      unidadeLotacao: lotacao.unidadeLotacao,
       nomeFantasiaEstabelecimento: d.nomeFantasiaEstabelecimento || '',
       nomeProfissional: d.nomeProfissional,
       pisPasep: d.pisPasep ? mascaraPIS(d.pisPasep) : '',

@@ -223,6 +223,8 @@ model ProducaoMensagem {
 model Profissional {
   id                          String   @id @default(uuid())
   cnes                        String?
+  nivelLotacao                String?  @map("nivel_lotacao")
+  unidadeLotacao              String?  @map("unidade_lotacao")
   nomeFantasiaEstabelecimento String?  @map("nome_fantasia_estabelecimento")
   nomeProfissional            String   @map("nome_profissional")
   pisPasep                    String?  @map("pis_pasep")

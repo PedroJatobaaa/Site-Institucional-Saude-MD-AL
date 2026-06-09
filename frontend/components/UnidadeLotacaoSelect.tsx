@@ -19,6 +19,10 @@ type Props = {
   showIcon?: boolean;
   compact?: boolean;
   disabled?: boolean;
+  labelCategoria?: string;
+  labelUnidade?: string;
+  showSecretariaHint?: boolean;
+  className?: string;
 };
 
 const selectPadrao =
@@ -37,6 +41,10 @@ export default function UnidadeLotacaoSelect({
   showIcon = true,
   compact = false,
   disabled = false,
+  labelCategoria = 'Categoria de Lotação',
+  labelUnidade = 'Unidade Específica',
+  showSecretariaHint = true,
+  className = '',
 }: Props) {
   const opcoesUnidade = unidadesDoNivel(nivelLotacao);
   const exibirSegundoSelect = nivelLotacao && !ehSecretariaSaude(nivelLotacao);
@@ -45,7 +53,7 @@ export default function UnidadeLotacaoSelect({
   const selectCategoria = (
     <div>
       <label className={labelClassName}>
-        Categoria de Lotação {required && '*'}
+        {labelCategoria} {required && '*'}
       </label>
       <div className="relative">
         {showIcon && (
@@ -72,7 +80,7 @@ export default function UnidadeLotacaoSelect({
   const selectUnidade = exibirSegundoSelect ? (
     <div>
       <label className={labelClassName}>
-        Unidade Específica {required && '*'}
+        {labelUnidade} {required && '*'}
       </label>
       <select
         required={required}
@@ -92,13 +100,13 @@ export default function UnidadeLotacaoSelect({
   ) : null;
 
   return (
-    <div className="space-y-3">
+    <div className={`space-y-3 ${className}`}>
       <div className={containerClass}>
         {selectCategoria}
         {selectUnidade}
       </div>
 
-      {ehSecretariaSaude(nivelLotacao) && (
+      {showSecretariaHint && ehSecretariaSaude(nivelLotacao) && (
         <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
           Lotação definida automaticamente como <strong>Secretaria de Saúde</strong>.
         </p>

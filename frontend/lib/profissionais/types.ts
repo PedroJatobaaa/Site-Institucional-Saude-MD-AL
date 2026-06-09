@@ -1,5 +1,7 @@
 export type ProfissionalPayload = {
   cnes?: string;
+  nivelLotacao?: string;
+  unidadeLotacao?: string;
   nomeFantasiaEstabelecimento?: string;
   nomeProfissional: string;
   pisPasep?: string;
@@ -109,13 +111,15 @@ export type ProfissionalListItem = {
   id: string;
   nomeProfissional: string;
   cpf: string;
-  numeroCns: string | null;
+  cnes: string | null;
   vinculoPrincipal: string | null;
   ativo: boolean;
 };
 
 export type ProfissionalDetalhe = ProfissionalListItem & {
-  cnes: string | null;
+  numeroCns: string | null;
+  nivelLotacao: string | null;
+  unidadeLotacao: string | null;
   nomeFantasiaEstabelecimento: string | null;
   pisPasep: string | null;
   sexo: string | null;
@@ -148,6 +152,8 @@ export const profissionalVazio = (): ProfissionalCompletoPayload => ({
   profissional: {
     nomeProfissional: '',
     cpf: '',
+    nivelLotacao: '',
+    unidadeLotacao: '',
     nacionalidade: 'Brasileira',
     frequentaEscola: false,
     ativo: true,

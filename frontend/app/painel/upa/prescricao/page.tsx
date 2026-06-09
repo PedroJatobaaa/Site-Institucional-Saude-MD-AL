@@ -240,7 +240,26 @@ export default function NovaPrescricao() {
   };
 
   const adicionarLinha = () => setItens([...itens, { id: Date.now(), tipo: 'MEDICAMENTO', descricao: '', horario: '', dev: '' }]);
-  const removerLinha = (id: number) => { if (itens.length > 1) setItens(itens.filter(item => item.id !== id)); };
+  const limparItem = (id: number) => {
+    setItens(itens.map(item =>
+      item.id === id
+        ? { ...item, id: Date.now(), dev: '', descricao: '', horario: '' }
+        : item
+    ));
+  };
+  const removerLinha = (id: number, index: number) => {
+    if (index === 0) {
+      limparItem(id);
+      return;
+    }
+    setItens(itens.filter(item => item.id !== id));
+  };
+  const moverItemParaCima = (index: number) => {
+    if (index <= 0) return;
+    const novaLista = [...itens];
+    [novaLista[index - 1], novaLista[index]] = [novaLista[index], novaLista[index - 1]];
+    setItens(novaLista);
+  };
   const atualizarItem = (id: number, campo: string, valor: string) => {
     setItens(itens.map(item => item.id === id ? { ...item, [campo]: valor } : item));
   };
@@ -475,7 +494,7 @@ export default function NovaPrescricao() {
                 <th className="p-4 text-[11px] font-black text-slate-400 uppercase w-20 text-center">DEV</th>
                 <th className="p-4 text-[11px] font-black text-slate-400 uppercase">Prescrição</th>
                 <th className="p-4 text-[11px] font-black text-slate-400 uppercase w-48 text-center">Horários</th>
-                <th className="p-4 w-12"></th>
+                <th className="p-4 w-20"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -506,7 +525,26 @@ export default function NovaPrescricao() {
                     />
                   </td>
                   <td className="p-4">
-                    <button onClick={() => removerLinha(item.id)} className="p-1 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16} /></button>
+                    <div className="flex items-center gap-1">
+                      {index > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => moverItemParaCima(index)}
+                          title="Subir item"
+                          className="p-1 text-slate-300 hover:text-blue-500 transition-colors"
+                        >
+                          <ChevronUp size={16} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removerLinha(item.id, index)}
+                        title={index === 0 ? 'Limpar linha' : 'Remover linha'}
+                        className="p-1 text-slate-300 hover:text-rose-500 transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
