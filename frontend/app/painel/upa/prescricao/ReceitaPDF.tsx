@@ -51,11 +51,11 @@ export const ReceitaPDF = forwardRef<HTMLDivElement, ReceitaPDFProps>(
         {/* IDENTIFICAÇÃO DO PACIENTE */}
         <div className="border-[2px] border-black mb-6">
           <div className="flex border-b border-black">
-            <div className="p-1 border-r border-black w-1/4 font-bold">
-              SETOR: <span className="font-normal uppercase">{setor}</span>
+            <div className="p-1 border-r border-black w-1/4 font-bold break-words">
+              SETOR: <span className="font-normal uppercase break-words">{setor}</span>
             </div>
-            <div className="p-1 border-r border-black w-2/4 font-bold">
-              PACIENTE: <span className="font-normal uppercase">{paciente?.nome || ''}</span>
+            <div className="p-1 border-r border-black w-2/4 font-bold break-words">
+              PACIENTE: <span className="font-normal uppercase break-words">{paciente?.nome || ''}</span>
               {paciente?.cpf && (
                 <span className="ml-2">
                   | CPF: <span className="font-normal">{paciente?.cpf}</span>
@@ -71,14 +71,14 @@ export const ReceitaPDF = forwardRef<HTMLDivElement, ReceitaPDFProps>(
             <div className="p-1 border-r border-black w-1/4 font-bold">
               DATA NASC.: <span className="font-normal">{paciente?.data_nascimento || ''}</span>
             </div>
-            <div className="p-1 border-r border-black w-1/4 font-bold">
-              REGISTRO: <span className="font-normal uppercase">{paciente?.registro_hc || ''}</span>
+            <div className="p-1 border-r border-black w-1/4 font-bold break-words">
+              REGISTRO: <span className="font-normal uppercase break-words">{paciente?.registro_hc || ''}</span>
             </div>
-            <div className="p-1 border-r border-black w-1/4 font-bold">
-              LEITO: <span className="font-normal uppercase">{leito}</span>
+            <div className="p-1 border-r border-black w-1/4 font-bold break-words">
+              LEITO: <span className="font-normal uppercase break-words">{leito}</span>
             </div>
-            <div className="p-1 w-1/4 font-bold">
-              CUSTO: <span className="font-normal uppercase">{custo}</span>
+            <div className="p-1 w-1/4 font-bold break-words">
+              CUSTO: <span className="font-normal uppercase break-words">{custo}</span>
             </div>
           </div>
         </div>
@@ -100,17 +100,17 @@ export const ReceitaPDF = forwardRef<HTMLDivElement, ReceitaPDFProps>(
           </div>
 
           {itensCompletos.slice(0, 15).map((item, index) => (
-            <div key={item.id} className="flex border-b border-black last:border-0 h-6 items-center">
+            <div key={item.id} className="flex border-b border-black last:border-0 min-h-6 py-0.5 items-start">
               <div className="p-1 border-r border-black w-8 text-center font-bold">
                 {item.descricao ? index + 1 : ''}
               </div>
               <div className="p-1 border-r border-black w-12 text-center uppercase font-bold text-[9px]">
                 {item.dev || ''}
               </div>
-              <div className="p-1 border-r border-black flex-1 uppercase font-medium truncate pl-2">
+              <div className="p-1 border-r border-black flex-1 uppercase font-medium whitespace-normal break-words leading-tight pl-2">
                 {item.descricao}
               </div>
-              <div className="p-1 w-48 text-center uppercase font-medium">
+              <div className="p-1 w-48 text-center uppercase font-medium whitespace-normal break-words leading-tight">
                 {item.horario}
               </div>
             </div>
