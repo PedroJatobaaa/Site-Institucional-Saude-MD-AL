@@ -53,7 +53,7 @@ type ProfissionalXml = {
 
 export type CnesImportResult = {
   unidades: { criadas: number; atualizadas: number };
-  profissionais: { criados: number; atualizados: number; inativados: number };
+  profissionais: { criados: number; atualizados: number; inativados: number; ignorados: number };
   usuarios: { criados: number; atualizados: number; bloqueados: number; reativados: number };
   avisos: string[];
 };
@@ -136,6 +136,81 @@ function mapearNomeLotacao(
   return '';
 }
 
+async function sincronizarUsuarioPainelDoCnes(
+  prisma: PrismaClient,
+  opts: {
+    cpf: string;
+    nomeProf: string;
+    unidadeLotacao: string | null;
+    nivelLotacao: string | null;
+    cboCodigo: string | null | undefined;
+    senhaPadraoHash: string;
+    resultado: CnesImportResult;
+  }
+): Promise<void> {
+  const { cpf, nomeProf, unidadeLotacao, nivelLotacao, cboCodigo, senhaPadraoHash, resultado } = opts;
+
+  const usuarioExistente = await prisma.usuario.findFirst({
+    where: { cpf },
+    select: { id: true, status: true, perfilId: true },
+  });
+
+  if (usuarioExistente) {
+    const reativando = usuarioExistente.status === 'BLOQUEADO';
+    await prisma.usuario.update({
+      where: { id: usuarioExistente.id },
+      data: {
+        nome: nomeProf,
+        ...(reativando
+          ? { status: usuarioExistente.perfilId ? 'APROVADO' : 'PENDENTE' }
+          : {}),
+        ...(unidadeLotacao
+          ? {
+              nivelLotacao,
+              unidadeLotacao,
+              unidade: unidadeLotacao,
+            }
+          : {}),
+      },
+    });
+    await atribuirPerfilAutomaticoPorCbo(prisma, cpf, cboCodigo);
+    if (reativando) {
+      resultado.usuarios.reativados++;
+    } else {
+      resultado.usuarios.atualizados++;
+    }
+    return;
+  }
+
+  const email = `${cpf}@cnes.importado`;
+  const emailEmUso = await prisma.usuario.findUnique({ where: { email } });
+  if (emailEmUso) {
+    resultado.avisos.push(`Usuário para CPF ${cpf} não criado — e-mail ${email} já existe.`);
+    return;
+  }
+
+  await prisma.usuario.create({
+    data: {
+      nome: nomeProf,
+      email,
+      senha: senhaPadraoHash,
+      cargo: 'Profissional de Saúde',
+      cpf,
+      status: 'PENDENTE',
+      precisa_redefinir_senha: true,
+      ...(unidadeLotacao
+        ? {
+            nivelLotacao,
+            unidadeLotacao,
+            unidade: unidadeLotacao,
+          }
+        : {}),
+    },
+  });
+  await atribuirPerfilAutomaticoPorCbo(prisma, cpf, cboCodigo);
+  resultado.usuarios.criados++;
+}
+
 export async function importarXmlCnes(
   prisma: PrismaClient,
   xmlContent: string,
@@ -159,12 +234,10 @@ export async function importarXmlCnes(
 
   const resultado: CnesImportResult = {
     unidades: { criadas: 0, atualizadas: 0 },
-    profissionais: { criados: 0, atualizados: 0, inativados: 0 },
+    profissionais: { criados: 0, atualizados: 0, inativados: 0, ignorados: 0 },
     usuarios: { criados: 0, atualizados: 0, bloqueados: 0, reativados: 0 },
     avisos: [],
   };
-
-  const cpfsNoArquivo = new Set<string>();
 
   const mapaCnesUnidade = new Map<string, { nomeLotacao: string; nivelLotacao: string; nomeCnes: string }>();
 
@@ -269,8 +342,6 @@ export async function importarXmlCnes(
       continue;
     }
 
-    cpfsNoArquivo.add(cpf);
-
     const lotacoes = asArray(prof.LOTACOES?.DADOS_LOTACOES);
     const lotacaoPrincipal = lotacoes[0];
     const cnesLotacao = lotacaoPrincipal?.['@_CNES']?.trim();
@@ -301,42 +372,12 @@ export async function importarXmlCnes(
     };
 
     const existenteProf = await prisma.profissional.findUnique({ where: { cpf } });
+    const cboCodigo = lotacaoPrincipal?.['@_CO_CBO'] ?? null;
+    const { unidadeLotacao, nivelLotacao } = lotacaoResolvida;
 
     if (existenteProf) {
-      await prisma.profissional.update({
-        where: { cpf },
-        data: dadosProf,
-      });
-
-      if (lotacaoPrincipal?.['@_CO_CBO']) {
-        const cboCodigo = lotacaoPrincipal['@_CO_CBO'];
-        const cboDescricao = obterDescricaoCbo(cboCodigo);
-        const dadosVinculo = {
-          cboCodigo,
-          cboDescricao,
-          registroConselhoClasse: prof['@_NU_REGISTRO'] || null,
-          orgaoEmissor: prof['@_SG_UF_EMIS'] || null,
-        };
-        const vinculos = await prisma.vinculoProfissional.findMany({
-          where: { profissionalId: existenteProf.id },
-          take: 1,
-        });
-        if (vinculos.length > 0) {
-          await prisma.vinculoProfissional.update({
-            where: { id: vinculos[0].id },
-            data: dadosVinculo,
-          });
-        } else {
-          await prisma.vinculoProfissional.create({
-            data: {
-              profissionalId: existenteProf.id,
-              ...dadosVinculo,
-            },
-          });
-        }
-      }
-
-      resultado.profissionais.atualizados++;
+      // Cadastro em /painel/profissionais permanece; usuários/perfil seguem o CNES
+      resultado.profissionais.ignorados++;
     } else {
       const criado = await prisma.profissional.create({
         data: {
@@ -346,8 +387,7 @@ export async function importarXmlCnes(
         },
       });
 
-      if (lotacaoPrincipal?.['@_CO_CBO']) {
-        const cboCodigo = lotacaoPrincipal['@_CO_CBO'];
+      if (cboCodigo) {
         await prisma.vinculoProfissional.create({
           data: {
             profissionalId: criado.id,
@@ -371,115 +411,15 @@ export async function importarXmlCnes(
       resultado.profissionais.criados++;
     }
 
-    // Fase 3: Usuário do painel
-    const usuarioExistente = await prisma.usuario.findFirst({
-      where: { cpf },
-      select: { id: true, status: true, perfilId: true },
+    await sincronizarUsuarioPainelDoCnes(prisma, {
+      cpf,
+      nomeProf,
+      unidadeLotacao,
+      nivelLotacao,
+      cboCodigo,
+      senhaPadraoHash,
+      resultado,
     });
-
-    if (usuarioExistente) {
-      const reativando = usuarioExistente.status === 'BLOQUEADO';
-      await prisma.usuario.update({
-        where: { id: usuarioExistente.id },
-        data: {
-          nome: nomeProf,
-          ...(reativando
-            ? { status: usuarioExistente.perfilId ? 'APROVADO' : 'PENDENTE' }
-            : {}),
-          ...(unidadeLotacao
-            ? {
-                nivelLotacao,
-                unidadeLotacao,
-                unidade: unidadeLotacao,
-              }
-            : {}),
-        },
-      });
-      await atribuirPerfilAutomaticoPorCbo(prisma, cpf);
-      if (reativando) {
-        resultado.usuarios.reativados++;
-      } else {
-        resultado.usuarios.atualizados++;
-      }
-    } else {
-      const email = `${cpf}@cnes.importado`;
-      const emailEmUso = await prisma.usuario.findUnique({ where: { email } });
-      if (emailEmUso) {
-        resultado.avisos.push(`Usuário para CPF ${cpf} não criado — e-mail ${email} já existe.`);
-        continue;
-      }
-
-      await prisma.usuario.create({
-        data: {
-          nome: nomeProf,
-          email,
-          senha: senhaPadraoHash,
-          cargo: 'Profissional de Saúde',
-          cpf,
-          status: 'PENDENTE',
-          precisa_redefinir_senha: true,
-          ...(unidadeLotacao
-            ? {
-                nivelLotacao,
-                unidadeLotacao,
-                unidade: unidadeLotacao,
-              }
-            : {}),
-        },
-      });
-      await atribuirPerfilAutomaticoPorCbo(prisma, cpf);
-      resultado.usuarios.criados++;
-    }
-  }
-
-  // Fase 4: Reconciliação — profissionais ausentes no XML
-  if (cpfsNoArquivo.size === 0) {
-    resultado.avisos.push('Nenhum profissional válido no XML — remoções ignoradas.');
-  } else {
-    const ausentes = await prisma.profissional.findMany({
-      where: {
-        ativo: true,
-        cpf: { notIn: [...cpfsNoArquivo] },
-      },
-      select: { id: true, cpf: true },
-    });
-
-    for (const prof of ausentes) {
-      await prisma.profissional.update({
-        where: { id: prof.id },
-        data: { ativo: false },
-      });
-
-      await prisma.profissionalHistorico.create({
-        data: {
-          profissionalId: prof.id,
-          tipo: 'ALTERACAO',
-          usuarioNome: 'Importação CNES',
-          alteracoes: [
-            {
-              campo: 'Situação do cadastro',
-              valorAnterior: 'Ativo',
-              valorNovo: 'Inativo',
-            },
-          ],
-        },
-      });
-
-      resultado.profissionais.inativados++;
-
-      const usuario = await prisma.usuario.findFirst({
-        where: { cpf: prof.cpf },
-        select: { id: true, status: true },
-      });
-
-      if (usuario && usuario.status !== 'BLOQUEADO') {
-        await prisma.usuario.update({
-          where: { id: usuario.id },
-          data: { status: 'BLOQUEADO' },
-        });
-        resultado.usuarios.bloqueados++;
-      }
-    }
   }
 
   await prisma.importacaoCnes.create({

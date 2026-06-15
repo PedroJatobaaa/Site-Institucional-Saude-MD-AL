@@ -165,7 +165,8 @@ export async function validarCbosUnicosEntrePerfis(
 
 export async function atribuirPerfilAutomaticoPorCbo(
   prisma: PrismaClient,
-  cpf: string
+  cpf: string,
+  cboCodigoXml?: string | null
 ): Promise<string | null> {
   const cpfLimpo = limparNumeros(cpf);
   if (!cpfLimpo) return null;
@@ -177,22 +178,28 @@ export async function atribuirPerfilAutomaticoPorCbo(
 
   if (!usuario || usuario.perfilId) return null;
 
-  const profissional = await prisma.profissional.findUnique({
-    where: { cpf: cpfLimpo },
-    select: {
-      vinculos: {
-        select: {
-          cboCodigo: true,
-          cboDescricao: true,
-          dataDesligamento: true,
-        },
-        orderBy: { dataEntrada: 'desc' },
-      },
-    },
-  });
+  let cboCodigo = cboCodigoXml?.trim() || null;
 
-  const vinculo = profissional ? vinculoPrincipalAtivo(profissional.vinculos) : null;
-  if (!vinculo?.cboCodigo) return null;
+  if (!cboCodigo) {
+    const profissional = await prisma.profissional.findUnique({
+      where: { cpf: cpfLimpo },
+      select: {
+        vinculos: {
+          select: {
+            cboCodigo: true,
+            cboDescricao: true,
+            dataDesligamento: true,
+          },
+          orderBy: { dataEntrada: 'desc' },
+        },
+      },
+    });
+
+    const vinculo = profissional ? vinculoPrincipalAtivo(profissional.vinculos) : null;
+    cboCodigo = vinculo?.cboCodigo ?? null;
+  }
+
+  if (!cboCodigo) return null;
 
   const perfis = await prisma.perfil.findMany({
     where: { ativo: true },
@@ -208,7 +215,7 @@ export async function atribuirPerfilAutomaticoPorCbo(
       continue;
     }
 
-    if (cboCorrespondePerfil(vinculo.cboCodigo, perfil.cbosVinculo, perfil.prefixosCbo)) {
+    if (cboCorrespondePerfil(cboCodigo, perfil.cbosVinculo, perfil.prefixosCbo)) {
       await prisma.usuario.update({
         where: { id: usuario.id },
         data: await dadosAoVincularPerfil(usuario.email, perfil.id),

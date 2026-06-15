@@ -78,7 +78,7 @@ export type UnidadeSaudeAdmin = {
 
 export type CnesImportResult = {
   unidades: { criadas: number; atualizadas: number };
-  profissionais: { criados: number; atualizados: number; inativados: number };
+  profissionais: { criados: number; atualizados: number; inativados: number; ignorados: number };
   usuarios: { criados: number; atualizados: number; bloqueados: number; reativados: number };
   avisos: string[];
 };

@@ -215,7 +215,8 @@ export default function AdminUnidadesPage() {
           Importar XML CNES
         </h3>
         <p className="text-sm text-slate-500 mb-4">
-          Envie o arquivo XML exportado do CNES/e-SUS para atualizar unidades, profissionais e usuários do painel.
+          Atualiza <strong>unidades</strong>, <strong>usuários</strong> e <strong>perfis</strong> (lotação e CBO do
+          XML). Profissionais já em <strong>/painel/profissionais</strong> não são alterados — apenas CPFs novos entram.
         </p>
 
         <div
@@ -264,10 +265,12 @@ export default function AdminUnidadesPage() {
             <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
               <p className="text-xs font-bold text-slate-500 uppercase">Profissionais</p>
               <p className="text-sm mt-1">
-                {resultadoImport.profissionais.criados} criados / {resultadoImport.profissionais.atualizados}{' '}
-                atualizados
-                {resultadoImport.profissionais.inativados > 0 && (
-                  <span className="text-amber-700"> / {resultadoImport.profissionais.inativados} inativados</span>
+                {resultadoImport.profissionais.criados} novos
+                {resultadoImport.profissionais.ignorados > 0 && (
+                  <span className="text-slate-600">
+                    {' '}
+                    / {resultadoImport.profissionais.ignorados} já cadastrados (mantidos)
+                  </span>
                 )}
               </p>
             </div>
@@ -275,9 +278,6 @@ export default function AdminUnidadesPage() {
               <p className="text-xs font-bold text-slate-500 uppercase">Usuários painel</p>
               <p className="text-sm mt-1">
                 {resultadoImport.usuarios.criados} criados / {resultadoImport.usuarios.atualizados} atualizados
-                {resultadoImport.usuarios.bloqueados > 0 && (
-                  <span className="text-amber-700"> / {resultadoImport.usuarios.bloqueados} bloqueados</span>
-                )}
                 {resultadoImport.usuarios.reativados > 0 && (
                   <span className="text-emerald-700"> / {resultadoImport.usuarios.reativados} reativados</span>
                 )}
