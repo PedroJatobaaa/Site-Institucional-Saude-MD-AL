@@ -5,15 +5,60 @@ import type {
   EnderecoPayload,
   ProfissionalCompletoPayload,
   ProfissionalDetalhe,
+  ProfissionalListagemResposta,
   ProfissionalListItem,
+  StatusCadastroAtualizacao,
+  StatusTreinamento,
   VinculoPayload,
 } from '../types/profissionais';
+import { PROFISSIONAIS_POR_PAGINA } from '../types/profissionais';
+import { nomeEstabelecimentoPorCnes } from './cnesCatalogService';
 import { formatarCPF, formatarCNS, limparNumeros, normalizarCPF } from '../utils/validators/documentos';
+import { obterDescricaoCbo } from '../utils/cargoCbo';
 import {
   alteracaoCriacao,
   gerarDiffProfissional,
   mapHistoricoResponse,
 } from '../utils/profissionaisHistorico';
+import {
+  CNES_SECRETARIA_SMS,
+  FANTASIA_SECRETARIA_SMS,
+  NIVEL_ATENCAO_BASICA,
+  NIVEL_ATENCAO_ESPECIALIZADA,
+  NIVEL_SECRETARIA_SAUDE,
+  UNIDADE_SECRETARIA_SAUDE,
+  UNIDADES_UBS,
+} from '../utils/validators/lotacao';
+
+const TREINAMENTO_DB: Record<StatusTreinamento, 'REALIZADO' | 'AGENDADO' | 'AGUARDANDO'> = {
+  realizado: 'REALIZADO',
+  agendado: 'AGENDADO',
+  aguardando: 'AGUARDANDO',
+};
+
+const TREINAMENTO_API: Record<string, StatusTreinamento> = {
+  REALIZADO: 'realizado',
+  AGENDADO: 'agendado',
+  AGUARDANDO: 'aguardando',
+};
+
+const CADASTRO_ATUALIZACAO_DB: Record<StatusCadastroAtualizacao, 'REALIZADO' | 'AGUARDANDO'> = {
+  realizado: 'REALIZADO',
+  aguardando: 'AGUARDANDO',
+};
+
+const CADASTRO_ATUALIZACAO_API: Record<string, StatusCadastroAtualizacao> = {
+  REALIZADO: 'realizado',
+  AGUARDANDO: 'aguardando',
+};
+
+function treinamentoParaApi(valor: string): StatusTreinamento {
+  return TREINAMENTO_API[valor] ?? 'aguardando';
+}
+
+function cadastroAtualizacaoParaApi(valor: string): StatusCadastroAtualizacao {
+  return CADASTRO_ATUALIZACAO_API[valor] ?? 'aguardando';
+}
 
 function parseDate(valor: string | null | undefined): Date | null {
   if (!valor) return null;
@@ -80,7 +125,13 @@ function mapDadosBancariosData(data: DadosBancariosPayload | null | undefined) {
   };
 }
 
+function descricaoCboVinculo(cboCodigo: string | null, cboDescricao: string | null): string | null {
+  return cboDescricao?.trim() || obterDescricaoCbo(cboCodigo) || null;
+}
+
 function mapVinculoData(v: VinculoPayload) {
+  const cboCodigo = v.cboCodigo || null;
+  const cboDescricao = descricaoCboVinculo(cboCodigo, v.cboDescricao || null);
   return {
     registroConselhoClasse: v.registroConselhoClasse || null,
     orgaoEmissor: v.orgaoEmissor || null,
@@ -89,7 +140,7 @@ function mapVinculoData(v: VinculoPayload) {
     codigoTipo: v.codigoTipo || null,
     codigoSubTipo: v.codigoSubTipo || null,
     cboCodigo: v.cboCodigo || null,
-    cboDescricao: v.cboDescricao || null,
+    cboDescricao: cboDescricao,
     cargaHorariaAmbulatorial: v.cargaHorariaAmbulatorial ?? null,
     cargaHorariaHospitalar: v.cargaHorariaHospitalar ?? null,
     cargaHorariaOutros: v.cargaHorariaOutros ?? null,
@@ -102,8 +153,12 @@ function mapVinculoData(v: VinculoPayload) {
 function unidadeVinculoLabel(p: {
   unidadeLotacao: string | null;
   nomeFantasiaEstabelecimento: string | null;
+  cnes?: string | null;
 }): string | null {
-  return p.unidadeLotacao || p.nomeFantasiaEstabelecimento || null;
+  if (p.unidadeLotacao?.trim()) return p.unidadeLotacao.trim();
+  if (p.nomeFantasiaEstabelecimento?.trim()) return p.nomeFantasiaEstabelecimento.trim();
+  const nomeCnes = nomeEstabelecimentoPorCnes(p.cnes);
+  return nomeCnes || null;
 }
 
 function mapProfissionalData(p: ProfissionalCompletoPayload['profissional']) {
@@ -133,6 +188,8 @@ function mapProfissionalData(p: ProfissionalCompletoPayload['profissional']) {
     situacaoFamiliarConjugal: p.situacaoFamiliarConjugal || null,
     frequentaEscola: p.frequentaEscola ?? false,
     ...(p.ativo !== undefined ? { ativo: p.ativo } : {}),
+    ...(p.treinamento ? { treinamento: TREINAMENTO_DB[p.treinamento] } : {}),
+    ...(p.cadastroAtualizacao ? { cadastroAtualizacao: CADASTRO_ATUALIZACAO_DB[p.cadastroAtualizacao] } : {}),
   };
 }
 
@@ -174,6 +231,56 @@ async function fetchProfissionalInclude(prisma: PrismaClient, id: string) {
   });
 }
 
+const ROTULO_CADASTRO_ATUALIZACAO = 'Cadastro/Atualização';
+
+function montarEstadoProposto(
+  existente: NonNullable<Awaited<ReturnType<typeof fetchProfissionalInclude>>>,
+  payload: ProfissionalCompletoPayload
+): ProfissionalDetalhe {
+  const p = payload.profissional;
+  const profMapped = mapProfissionalData({
+    ...p,
+    ativo: p.ativo ?? existente.ativo,
+    treinamento: p.treinamento ?? treinamentoParaApi(existente.treinamento),
+    cadastroAtualizacao: p.cadastroAtualizacao ?? cadastroAtualizacaoParaApi(existente.cadastroAtualizacao),
+  });
+
+  const docMapped = mapDocumentosData(payload.documentos);
+  const endMapped = mapEnderecoData(payload.endereco);
+  const bancoMapped = mapDadosBancariosData(payload.dadosBancarios);
+  const vinculosMapped = (payload.vinculos || []).map(mapVinculoData);
+
+  return mapProfissionalDetalhe({
+    ...existente,
+    ...profMapped,
+    documento: docMapped
+      ? { id: existente.documento?.id ?? '', profissionalId: existente.id, ...docMapped }
+      : null,
+    endereco: endMapped
+      ? { id: existente.endereco?.id ?? '', profissionalId: existente.id, ...endMapped }
+      : null,
+    dadosBancarios: bancoMapped
+      ? { id: existente.dadosBancarios?.id ?? '', profissionalId: existente.id, ...bancoMapped }
+      : null,
+    vinculos: vinculosMapped.map((v, i) => ({
+      id: payload.vinculos?.[i]?.id ?? `temp-${i}`,
+      profissionalId: existente.id,
+      ...v,
+    })),
+    historico: existente.historico,
+  });
+}
+
+function haEdicaoDados(
+  estadoAntes: ProfissionalDetalhe,
+  existente: NonNullable<Awaited<ReturnType<typeof fetchProfissionalInclude>>>,
+  payload: ProfissionalCompletoPayload
+): boolean {
+  const estadoProposto = montarEstadoProposto(existente, payload);
+  const alteracoes = gerarDiffProfissional(estadoAntes, estadoProposto);
+  return alteracoes.some((alteracao) => alteracao.campo !== ROTULO_CADASTRO_ATUALIZACAO);
+}
+
 function mapProfissionalDetalhe(p: NonNullable<Awaited<ReturnType<typeof fetchProfissionalInclude>>>): ProfissionalDetalhe {
   return {
     id: p.id,
@@ -203,6 +310,8 @@ function mapProfissionalDetalhe(p: NonNullable<Awaited<ReturnType<typeof fetchPr
     situacaoFamiliarConjugal: p.situacaoFamiliarConjugal,
     frequentaEscola: p.frequentaEscola,
     ativo: p.ativo,
+    treinamento: treinamentoParaApi(p.treinamento),
+    cadastroAtualizacao: cadastroAtualizacaoParaApi(p.cadastroAtualizacao),
     criadoPorNome: p.criadoPorNome,
     createdAt: p.createdAt.toISOString(),
     documentos: mapDocumentosResponse(p.documento),
@@ -237,7 +346,7 @@ function mapProfissionalDetalhe(p: NonNullable<Awaited<ReturnType<typeof fetchPr
       codigoTipo: v.codigoTipo,
       codigoSubTipo: v.codigoSubTipo,
       cboCodigo: v.cboCodigo,
-      cboDescricao: v.cboDescricao,
+      cboDescricao: descricaoCboVinculo(v.cboCodigo, v.cboDescricao),
       cargaHorariaAmbulatorial: v.cargaHorariaAmbulatorial,
       cargaHorariaHospitalar: v.cargaHorariaHospitalar,
       cargaHorariaOutros: v.cargaHorariaOutros,
@@ -253,18 +362,23 @@ export type ListarProfissionaisFiltros = {
   q?: string;
   nivelLotacao?: string;
   unidadeLotacao?: string;
+  treinamento?: StatusTreinamento;
+  cadastroAtualizacao?: StatusCadastroAtualizacao;
+  pagina?: number;
+  incluirInativos?: boolean;
 };
 
-export async function listarProfissionais(
-  prisma: PrismaClient,
-  filtros?: ListarProfissionaisFiltros
-): Promise<ProfissionalListItem[]> {
+function montarWhereProfissionais(filtros?: ListarProfissionaisFiltros): Prisma.ProfissionalWhereInput | undefined {
   const busca = filtros?.q?.trim();
   const cpfBusca = busca ? limparNumeros(busca) : '';
   const nivelLotacao = filtros?.nivelLotacao?.trim();
   const unidadeLotacao = filtros?.unidadeLotacao?.trim();
 
   const condicoes: Prisma.ProfissionalWhereInput[] = [];
+
+  if (!filtros?.incluirInativos) {
+    condicoes.push({ ativo: true });
+  }
 
   if (busca) {
     condicoes.push({
@@ -275,11 +389,81 @@ export async function listarProfissionais(
     });
   }
 
-  if (nivelLotacao) {
+  if (nivelLotacao === NIVEL_ATENCAO_BASICA) {
+    const listaUbs = [...UNIDADES_UBS];
+    condicoes.push({
+      OR: [
+        { nivelLotacao: NIVEL_ATENCAO_BASICA },
+        { unidadeLotacao: { in: listaUbs } },
+        { nomeFantasiaEstabelecimento: { in: listaUbs } },
+        { unidadeLotacao: { startsWith: 'UBS ', mode: 'insensitive' } },
+        { nomeFantasiaEstabelecimento: { startsWith: 'UBS ', mode: 'insensitive' } },
+        { nomeFantasiaEstabelecimento: { startsWith: 'UNIDADE DE SAUDE DA FAMILIA', mode: 'insensitive' } },
+        { nomeFantasiaEstabelecimento: { startsWith: 'UNIDADE BASICA', mode: 'insensitive' } },
+      ],
+    });
+  } else if (nivelLotacao === NIVEL_ATENCAO_ESPECIALIZADA) {
+    const listaUbs = [...UNIDADES_UBS];
+    condicoes.push({
+      OR: [
+        { nivelLotacao: NIVEL_ATENCAO_ESPECIALIZADA },
+        {
+          AND: [
+            { cnes: { not: null } },
+            { cnes: { not: '' } },
+            { NOT: { cnes: CNES_SECRETARIA_SMS } },
+            { NOT: { nivelLotacao: NIVEL_ATENCAO_BASICA } },
+            { NOT: { nivelLotacao: NIVEL_SECRETARIA_SAUDE } },
+          ],
+        },
+        {
+          AND: [
+            { unidadeLotacao: { not: null } },
+            { unidadeLotacao: { not: '' } },
+            { unidadeLotacao: { notIn: listaUbs } },
+            { unidadeLotacao: { not: UNIDADE_SECRETARIA_SAUDE } },
+            { NOT: { unidadeLotacao: { startsWith: 'UBS ', mode: 'insensitive' } } },
+            { NOT: { nivelLotacao: NIVEL_ATENCAO_BASICA } },
+            { NOT: { nivelLotacao: NIVEL_SECRETARIA_SAUDE } },
+          ],
+        },
+        {
+          AND: [
+            { nomeFantasiaEstabelecimento: { not: null } },
+            { nomeFantasiaEstabelecimento: { not: '' } },
+            { nomeFantasiaEstabelecimento: { notIn: listaUbs } },
+            { NOT: { nomeFantasiaEstabelecimento: { equals: FANTASIA_SECRETARIA_SMS, mode: 'insensitive' } } },
+            { NOT: { nomeFantasiaEstabelecimento: { equals: UNIDADE_SECRETARIA_SAUDE, mode: 'insensitive' } } },
+            { NOT: { nomeFantasiaEstabelecimento: { startsWith: 'UNIDADE DE SAUDE DA FAMILIA', mode: 'insensitive' } } },
+            { NOT: { nomeFantasiaEstabelecimento: { startsWith: 'UNIDADE BASICA', mode: 'insensitive' } } },
+            { NOT: { nomeFantasiaEstabelecimento: { startsWith: 'UBS ', mode: 'insensitive' } } },
+            { NOT: { nivelLotacao: NIVEL_ATENCAO_BASICA } },
+            { NOT: { nivelLotacao: NIVEL_SECRETARIA_SAUDE } },
+          ],
+        },
+      ],
+    });
+  } else if (nivelLotacao === NIVEL_SECRETARIA_SAUDE) {
+    condicoes.push({
+      OR: [
+        { nivelLotacao: NIVEL_SECRETARIA_SAUDE },
+        { unidadeLotacao: UNIDADE_SECRETARIA_SAUDE },
+        { nomeFantasiaEstabelecimento: UNIDADE_SECRETARIA_SAUDE },
+        { cnes: CNES_SECRETARIA_SMS },
+        { nomeFantasiaEstabelecimento: { equals: FANTASIA_SECRETARIA_SMS, mode: 'insensitive' } },
+      ],
+    });
+  } else if (nivelLotacao) {
     condicoes.push({ nivelLotacao });
   }
 
-  if (unidadeLotacao) {
+  const filtroUnidadeRedundante = Boolean(
+    unidadeLotacao
+    && nivelLotacao === NIVEL_SECRETARIA_SAUDE
+    && unidadeLotacao === UNIDADE_SECRETARIA_SAUDE
+  );
+
+  if (unidadeLotacao && !filtroUnidadeRedundante) {
     condicoes.push({
       OR: [
         { unidadeLotacao },
@@ -288,21 +472,67 @@ export async function listarProfissionais(
     });
   }
 
-  const where = condicoes.length ? { AND: condicoes } : undefined;
+  if (filtros?.treinamento) {
+    condicoes.push({ treinamento: TREINAMENTO_DB[filtros.treinamento] });
+  }
 
-  const lista = await prisma.profissional.findMany({
-    where,
-    orderBy: { nomeProfissional: 'asc' },
-  });
+  if (filtros?.cadastroAtualizacao) {
+    condicoes.push({ cadastroAtualizacao: CADASTRO_ATUALIZACAO_DB[filtros.cadastroAtualizacao] });
+  }
 
-  return lista.map((p) => ({
+  return condicoes.length ? { AND: condicoes } : undefined;
+}
+
+function mapProfissionalListItem(p: {
+  id: string;
+  nomeProfissional: string;
+  cpf: string;
+  cnes: string | null;
+  unidadeLotacao: string | null;
+  nomeFantasiaEstabelecimento: string | null;
+  ativo: boolean;
+  treinamento: string;
+  cadastroAtualizacao: string;
+}): ProfissionalListItem {
+  return {
     id: p.id,
     nomeProfissional: p.nomeProfissional,
     cpf: formatarCPF(p.cpf),
     cnes: p.cnes,
     vinculoPrincipal: unidadeVinculoLabel(p),
     ativo: p.ativo,
-  }));
+    treinamento: treinamentoParaApi(p.treinamento),
+    cadastroAtualizacao: cadastroAtualizacaoParaApi(p.cadastroAtualizacao),
+  };
+}
+
+export async function listarProfissionais(
+  prisma: PrismaClient,
+  filtros?: ListarProfissionaisFiltros
+): Promise<ProfissionalListagemResposta> {
+  const where = montarWhereProfissionais(filtros);
+  const paginaSolicitada = Math.max(1, filtros?.pagina ?? 1);
+  const porPagina = PROFISSIONAIS_POR_PAGINA;
+
+  const total = await prisma.profissional.count({ where });
+  const totalPaginas = total > 0 ? Math.ceil(total / porPagina) : 1;
+  const pagina = total > 0 ? Math.min(paginaSolicitada, totalPaginas) : 1;
+  const skip = (pagina - 1) * porPagina;
+
+  const lista = await prisma.profissional.findMany({
+    where,
+    orderBy: { nomeProfissional: 'asc' },
+    skip,
+    take: porPagina,
+  });
+
+  return {
+    itens: lista.map(mapProfissionalListItem),
+    total,
+    pagina,
+    porPagina,
+    totalPaginas,
+  };
 }
 
 export async function obterProfissional(prisma: PrismaClient, id: string): Promise<ProfissionalDetalhe | null> {
@@ -370,10 +600,15 @@ export async function atualizarProfissional(
 
   const estadoAntes = mapProfissionalDetalhe(antesRaw);
   const existente = antesRaw;
+  const houveEdicaoDados = haEdicaoDados(estadoAntes, existente, payload);
 
   const profData = mapProfissionalData({
     ...payload.profissional,
     ativo: payload.profissional.ativo ?? existente.ativo,
+    treinamento: payload.profissional.treinamento ?? treinamentoParaApi(existente.treinamento),
+    cadastroAtualizacao: houveEdicaoDados
+      ? 'aguardando'
+      : (payload.profissional.cadastroAtualizacao ?? cadastroAtualizacaoParaApi(existente.cadastroAtualizacao)),
   });
   const docData = mapDocumentosData(payload.documentos);
   const endData = mapEnderecoData(payload.endereco);

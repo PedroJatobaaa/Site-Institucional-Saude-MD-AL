@@ -1,12 +1,15 @@
 "use client";
 
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Building } from 'lucide-react';
 import {
   NIVEIS_LOTACAO,
   ehSecretariaSaude,
+  organizarUnidadesPorNivel,
   unidadesDoNivel,
+  UNIDADES_POR_NIVEL,
 } from '@/lib/usuarios/lotacao';
+import { listarLotacaoOpcoes, type LotacaoOpcao } from '@/lib/admin/api';
 
 type Props = {
   nivelLotacao: string;
@@ -18,6 +21,8 @@ type Props = {
   labelClassName?: string;
   showIcon?: boolean;
   compact?: boolean;
+  inline?: boolean;
+  modoFiltro?: boolean;
   disabled?: boolean;
   labelCategoria?: string;
   labelUnidade?: string;
@@ -30,6 +35,12 @@ const selectPadrao =
 
 const labelPadrao = 'block text-[11px] font-bold text-slate-500 uppercase mb-1';
 
+function mapaFromOpcoes(opcoes: LotacaoOpcao[]): Record<string, readonly string[]> {
+  const nomes = opcoes.flatMap((o) => o.unidades);
+  if (nomes.length === 0) return UNIDADES_POR_NIVEL;
+  return organizarUnidadesPorNivel(nomes);
+}
+
 export default function UnidadeLotacaoSelect({
   nivelLotacao,
   unidadeLotacao,
@@ -40,25 +51,65 @@ export default function UnidadeLotacaoSelect({
   labelClassName = labelPadrao,
   showIcon = true,
   compact = false,
+  inline = false,
+  modoFiltro = false,
   disabled = false,
   labelCategoria = 'Categoria de Lotação',
   labelUnidade = 'Unidade Específica',
   showSecretariaHint = true,
   className = '',
 }: Props) {
-  const opcoesUnidade = unidadesDoNivel(nivelLotacao);
+  const [mapaUnidades, setMapaUnidades] = useState<Record<string, readonly string[]>>(UNIDADES_POR_NIVEL);
+
+  useEffect(() => {
+    listarLotacaoOpcoes()
+      .then((opcoes) => {
+        if (opcoes.some((o) => o.unidades.length > 0)) {
+          setMapaUnidades(mapaFromOpcoes(opcoes));
+        }
+      })
+      .catch(() => {
+        /* fallback estático */
+      });
+  }, []);
+
+  const opcoesUnidade = useMemo(() => {
+    if (!nivelLotacao) return [];
+    const lista = [...(mapaUnidades[nivelLotacao] ?? unidadesDoNivel(nivelLotacao))];
+    if (unidadeLotacao && !lista.includes(unidadeLotacao)) {
+      lista.push(unidadeLotacao);
+    }
+    return lista.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [mapaUnidades, nivelLotacao, unidadeLotacao]);
+
   const exibirSegundoSelect = nivelLotacao && !ehSecretariaSaude(nivelLotacao);
-  const containerClass = compact ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'space-y-4';
+
+  const placeholderCategoria = modoFiltro ? 'Todas as categorias' : 'Selecione a categoria...';
+  const placeholderUnidade = modoFiltro ? 'Todas as unidades' : 'Selecione a unidade...';
+
+  const campoClass = inline
+    ? 'min-w-0'
+    : compact && !exibirSegundoSelect
+      ? 'sm:col-span-2'
+      : '';
+
+  const containerClass = inline
+    ? 'contents'
+    : compact
+      ? exibirSegundoSelect
+        ? 'grid grid-cols-1 sm:grid-cols-2 gap-3'
+        : 'grid grid-cols-1 gap-3'
+      : 'space-y-4';
+
+  const wrapperClass = inline ? 'contents' : `space-y-3 ${className}`;
 
   const selectCategoria = (
-    <div>
+    <div className={campoClass}>
       <label className={labelClassName}>
         {labelCategoria} {required && '*'}
       </label>
       <div className="relative">
-        {showIcon && (
-          <Building size={18} className="absolute left-3 top-3.5 text-slate-400" />
-        )}
+        {showIcon && <Building size={18} className="absolute left-3 top-3.5 text-slate-400" />}
         <select
           required={required}
           disabled={disabled}
@@ -66,7 +117,7 @@ export default function UnidadeLotacaoSelect({
           onChange={(e) => onNivelChange(e.target.value)}
           className={`${selectClassName} ${showIcon ? 'pl-10' : ''}`}
         >
-          <option value="">Selecione a categoria...</option>
+          <option value="">{placeholderCategoria}</option>
           {NIVEIS_LOTACAO.map((nivel) => (
             <option key={nivel} value={nivel}>
               {nivel}
@@ -78,7 +129,7 @@ export default function UnidadeLotacaoSelect({
   );
 
   const selectUnidade = exibirSegundoSelect ? (
-    <div>
+    <div className={campoClass}>
       <label className={labelClassName}>
         {labelUnidade} {required && '*'}
       </label>
@@ -89,7 +140,7 @@ export default function UnidadeLotacaoSelect({
         onChange={(e) => onUnidadeChange(e.target.value)}
         className={selectClassName}
       >
-        <option value="">Selecione a unidade...</option>
+        <option value="">{placeholderUnidade}</option>
         {opcoesUnidade.map((unidade) => (
           <option key={unidade} value={unidade}>
             {unidade}
@@ -100,13 +151,13 @@ export default function UnidadeLotacaoSelect({
   ) : null;
 
   return (
-    <div className={`space-y-3 ${className}`}>
+    <div className={wrapperClass}>
       <div className={containerClass}>
         {selectCategoria}
         {selectUnidade}
       </div>
 
-      {showSecretariaHint && ehSecretariaSaude(nivelLotacao) && (
+      {!inline && showSecretariaHint && ehSecretariaSaude(nivelLotacao) && (
         <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
           Lotação definida automaticamente como <strong>Secretaria de Saúde</strong>.
         </p>

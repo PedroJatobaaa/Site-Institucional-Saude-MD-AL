@@ -17,6 +17,7 @@ import {
 } from '../constants/filasProducao';
 
 import { calculateDeadline, isPrazoExpirado } from '../utils/producaoDeadline';
+import { filasProducaoEfetivas } from '../utils/permissoesUsuario';
 
 import {
   calcularSituacaoPrazo,
@@ -73,6 +74,34 @@ function isAdmin(permissoes: string[]) {
 
 
 
+async function obterIdsFilasUsuario(prisma: PrismaClient, usuarioId: string): Promise<string[]> {
+
+  const usuario = await prisma.usuario.findUnique({
+
+    where: { id: usuarioId },
+
+    include: {
+
+      permissoesProducao: { select: { filaId: true } },
+
+      perfil: { include: { filasProducao: { select: { filaId: true } } } },
+
+    },
+
+  });
+
+  if (!usuario) return [];
+
+  const doPerfil = usuario.perfil?.filasProducao.map((f) => f.filaId) ?? [];
+
+  const doUsuario = usuario.permissoesProducao.map((p) => p.filaId);
+
+  return filasProducaoEfetivas(doPerfil, doUsuario);
+
+}
+
+
+
 async function obterFilasPermitidasUsuario(
 
   prisma: PrismaClient,
@@ -91,17 +120,9 @@ async function obterFilasPermitidasUsuario(
 
 
 
-  const registros = await prisma.permissaoProducaoUsuario.findMany({
+  const ids = await obterIdsFilasUsuario(prisma, usuarioId);
 
-    where: { usuarioId },
-
-    select: { filaId: true },
-
-  });
-
-
-
-  return filtrarFilasPorIds(registros.map((r) => r.filaId));
+  return filtrarFilasPorIds(ids);
 
 }
 
@@ -125,19 +146,9 @@ async function usuarioTemPermissaoFila(
 
 
 
-  const registro = await prisma.permissaoProducaoUsuario.findUnique({
+  const ids = await obterIdsFilasUsuario(prisma, usuarioId);
 
-    where: {
-
-      usuarioId_filaId: { usuarioId, filaId },
-
-    },
-
-  });
-
-
-
-  return !!registro;
+  return ids.includes(filaId);
 
 }
 

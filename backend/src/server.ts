@@ -12,9 +12,15 @@ import fs from 'fs';
 import multer from 'multer';
 import { registerProducaoRoutes } from './routes/producoes';
 import { registerProfissionalRoutes } from './routes/profissionais';
+import { registerAdminUsuarioRoutes } from './routes/admin/usuarios';
+import { registerAdminPerfilRoutes } from './routes/admin/perfis';
+import { registerAdminUnidadeRoutes } from './routes/admin/unidades';
+import { registerAdminCnesRoutes } from './routes/admin/cnes';
 import { validarLotacao } from './utils/validators/lotacao';
-import { validarIdsFilas } from './constants/filasProducao';
 import { limparNumeros } from './utils/validators/documentos';
+import { permissoesEfetivas } from './utils/permissoesUsuario';
+import { carregarUnidadesPorNivel } from './utils/unidadesCache';
+import { buscarUsuarioPorLogin } from './utils/primeiroAcessoCnes';
 
 function calcularIdade(dataNascimento: string | null | undefined): number | null {
   if (!dataNascimento) return null;
@@ -93,6 +99,16 @@ const uploadProducao = multer({
   },
 });
 
+const uploadXml = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.xml') cb(null, true);
+    else cb(new Error('Apenas arquivos .xml são permitidos.'));
+  },
+});
+
 // ---------------------------------------------------------
 // MIDDLEWARE DE SEGURANÇA
 // ---------------------------------------------------------
@@ -167,7 +183,8 @@ app.post('/api/auth/registrar', async (req, res): Promise<any> => {
       return res.status(400).json({ erro: 'Campos principais são obrigatórios.' });
     }
 
-    const lotacao = validarLotacao(nivel_lotacao, unidade_lotacao);
+    const mapaUnidades = await carregarUnidadesPorNivel(prisma);
+    const lotacao = validarLotacao(nivel_lotacao, unidade_lotacao, mapaUnidades);
     if (!lotacao.ok) {
       return res.status(400).json({ erro: lotacao.erro });
     }
@@ -204,46 +221,71 @@ app.post('/api/auth/registrar', async (req, res): Promise<any> => {
 
 app.post('/api/auth/login', async (req, res): Promise<any> => {
   try {
-    const { email, senha } = req.body;
-    const usuario = await prisma.usuario.findUnique({ where: { email } });
+    const { login, email, senha } = req.body;
+    const identificador = (login || email || '').trim();
+
+    if (!identificador || !senha) {
+      return res.status(400).json({ erro: 'CPF/e-mail e senha são obrigatórios.' });
+    }
+
+    const usuario = await buscarUsuarioPorLogin(prisma, identificador);
 
     if (!usuario || !(await bcrypt.compare(senha, usuario.senha))) {
-      return res.status(401).json({ erro: 'E-mail ou senha incorretos.' });
+      return res.status(401).json({ erro: 'CPF/e-mail ou senha incorretos.' });
     }
 
     if (usuario.status === 'PENDENTE') return res.status(403).json({ erro: 'Conta em análise.' });
     if (usuario.status === 'BLOQUEADO') return res.status(403).json({ erro: 'Conta bloqueada.' });
 
-    // 👇 NOVA TRAVA: Verifica se a administração exigiu troca de senha
     if (usuario.precisa_redefinir_senha) {
-      // Gera um token temporário (só vale por 10 minutos) apenas para autorizar a troca de senha
       const tokenTemporario = jwt.sign(
         { id: usuario.id, email: usuario.email },
         process.env.JWT_SECRET || 'segredo_fallback',
         { expiresIn: '10m' }
       );
-      
-      return res.status(200).json({ 
-        precisa_redefinir_senha: true, 
+
+      return res.status(200).json({
+        precisa_redefinir_senha: true,
         mensagem: 'Atualização de segurança obrigatória.',
-        token: tokenTemporario // Manda pro front para ele usar na rota de redefinir
+        token: tokenTemporario,
+        email: usuario.email,
       });
     }
 
-    // Se estiver tudo ok, faz o login normal
+    const usuarioComPerfil = await prisma.usuario.findUnique({
+      where: { id: usuario.id },
+      include: {
+        perfil: { select: { permissoes: true } },
+      },
+    });
+
+    if (!usuarioComPerfil) {
+      return res.status(401).json({ erro: 'CPF/e-mail ou senha incorretos.' });
+    }
+
+    const efetivas = permissoesEfetivas(usuarioComPerfil);
+
     const token = jwt.sign(
       {
-        id: usuario.id,
-        nome: usuario.nome,
-        cargo: usuario.cargo,
-        permissoes: usuario.permissoes,
-        unidade: usuario.unidade,
+        id: usuarioComPerfil.id,
+        nome: usuarioComPerfil.nome,
+        cargo: usuarioComPerfil.cargo,
+        permissoes: efetivas,
+        unidade: usuarioComPerfil.unidade,
       },
       process.env.JWT_SECRET || 'segredo_fallback',
       { expiresIn: '8h' }
     );
 
-    return res.status(200).json({ token, usuario });
+    const { senha: _s, perfil: _p, ...usuarioResposta } = usuarioComPerfil;
+
+    return res.status(200).json({
+      token,
+      usuario: {
+        ...usuarioResposta,
+        permissoes: efetivas,
+      },
+    });
   } catch (error) {
     return res.status(500).json({ erro: 'Erro no servidor.' });
   }
@@ -277,142 +319,14 @@ app.post('/api/auth/redefinir-senha', verificarToken, async (req: any, res: any)
 });
 
 // ---------------------------------------------------------
-// ROTAS DE ADMINISTRAÇÃO (GESTÃO DE USUÁRIOS)
+// ROTAS DE ADMINISTRAÇÃO (GESTÃO DE ACESSOS)
 // ---------------------------------------------------------
+const adminDeps = { prisma, verificarToken };
+registerAdminUsuarioRoutes(app, adminDeps);
+registerAdminPerfilRoutes(app, adminDeps);
+registerAdminUnidadeRoutes(app, adminDeps);
+registerAdminCnesRoutes(app, { ...adminDeps, uploadXml });
 
-app.get('/api/admin/usuarios', verificarToken, async (req: any, res: any): Promise<any> => {
-  try {
-    if (!req.usuario.permissoes.includes('admin')) return res.status(403).json({ erro: 'Acesso negado.' });
-
-    const usuarios = await prisma.usuario.findMany({
-      select: { 
-        id: true, 
-        nome: true, 
-        email: true, 
-        cargo: true, 
-        cpf: true,      
-        unidade: true,
-        nivelLotacao: true,
-        unidadeLotacao: true,
-        status: true, 
-        permissoes: true,
-        permissoesProducao: { select: { filaId: true } },
-        createdAt: true 
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    const usuariosFormatados = usuarios.map(({ permissoesProducao, ...usuario }) => ({
-      ...usuario,
-      permissoesProducao: permissoesProducao.map((p) => p.filaId),
-    }));
-
-    return res.status(200).json(usuariosFormatados);
-  } catch (error) {
-    return res.status(500).json({ erro: 'Falha ao buscar usuários.' });
-  }
-});
-
-app.put('/api/admin/usuarios/:id', verificarToken, async (req: any, res: any): Promise<any> => {
-  try {
-    if (!req.usuario.permissoes.includes('admin')) return res.status(403).json({ erro: 'Acesso negado.' });
-    const { id } = req.params;
-    const { status, permissoes, nivel_lotacao, unidade_lotacao, permissoes_producao } = req.body;
-
-    const dadosAtualizacao: {
-      status?: string;
-      permissoes?: string[];
-      nivelLotacao?: string;
-      unidadeLotacao?: string;
-      unidade?: string;
-    } = {};
-
-    if (status !== undefined) dadosAtualizacao.status = status;
-    if (permissoes !== undefined) dadosAtualizacao.permissoes = permissoes;
-
-    if (nivel_lotacao !== undefined || unidade_lotacao !== undefined) {
-      const lotacao = validarLotacao(nivel_lotacao, unidade_lotacao);
-      if (!lotacao.ok) {
-        return res.status(400).json({ erro: lotacao.erro });
-      }
-      dadosAtualizacao.nivelLotacao = lotacao.dados.nivelLotacao;
-      dadosAtualizacao.unidadeLotacao = lotacao.dados.unidadeLotacao;
-      dadosAtualizacao.unidade = lotacao.dados.unidade;
-    }
-
-    if (permissoes_producao !== undefined) {
-      const validacaoFilas = validarIdsFilas(permissoes_producao);
-      if (!validacaoFilas.ok) {
-        return res.status(400).json({ erro: validacaoFilas.erro });
-      }
-
-      await prisma.$transaction([
-        prisma.permissaoProducaoUsuario.deleteMany({ where: { usuarioId: id } }),
-        ...(validacaoFilas.ids.length > 0
-          ? [
-              prisma.permissaoProducaoUsuario.createMany({
-                data: validacaoFilas.ids.map((filaId) => ({ usuarioId: id, filaId })),
-              }),
-            ]
-          : []),
-      ]);
-    }
-
-    const usuarioAtualizado = await prisma.usuario.update({
-      where: { id },
-      data: dadosAtualizacao,
-      select: {
-        id: true,
-        nome: true,
-        status: true,
-        permissoes: true,
-        nivelLotacao: true,
-        unidadeLotacao: true,
-        unidade: true,
-        permissoesProducao: { select: { filaId: true } },
-      }
-    });
-
-    const { permissoesProducao, ...resto } = usuarioAtualizado;
-
-    return res.status(200).json({
-      mensagem: 'Acessos atualizados!',
-      usuario: {
-        ...resto,
-        permissoesProducao: permissoesProducao.map((p) => p.filaId),
-      },
-    });
-  } catch (error) {
-    return res.status(500).json({ erro: 'Falha ao atualizar.' });
-  }
-});
-
-// 👇 NOVA ROTA ADMIN: Levantar a bandeira vermelha
-// 👇 NOVA ROTA ADMIN: Levantar a bandeira vermelha E definir Senha Padrão
-app.post('/api/admin/usuarios/:id/forcar-senha', verificarToken, async (req: any, res: any): Promise<any> => {
-  try {
-    if (!req.usuario.permissoes.includes('admin')) return res.status(403).json({ erro: 'Acesso negado.' });
-    const { id } = req.params;
-
-    // 1. Define a senha padrão do sistema
-    const senhaPadrao = "Saude@123";
-    const senhaCriptografada = await bcrypt.hash(senhaPadrao, 10);
-
-    // 2. Atualiza o banco substituindo a senha antiga pela padrão e levantando a bandeira
-    await prisma.usuario.update({
-      where: { id },
-      data: { 
-        senha: senhaCriptografada,
-        precisa_redefinir_senha: true 
-      }
-    });
-
-    return res.status(200).json({ mensagem: 'Senha resetada para o padrão.' });
-  } catch (error) {
-    console.error("Erro ao forçar redefinição:", error);
-    return res.status(500).json({ erro: 'Falha ao processar solicitação.' });
-  }
-});
 /// ---------------------------------------------------------
 // ROTAS DO MURAL DE AVISOS
 // ---------------------------------------------------------
@@ -759,7 +673,7 @@ app.get('/api/upa/pacientes/:id/prescricoes', verificarToken, async (req: any, r
 registerProducaoRoutes(app, { prisma, verificarToken, uploadProducao });
 
 // ---------------------------------------------------------
-// MÓDULO CADASTRO DE PROFISSIONAIS
+// MÓDULO PROFISSIONAIS
 // ---------------------------------------------------------
 registerProfissionalRoutes(app, { prisma, verificarToken });
 

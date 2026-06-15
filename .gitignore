@@ -7,3 +7,6 @@ certbot/
 
 # Uploads locais
 backend/uploads/
+
+# Export CNES com dados pessoais (importação via painel admin)
+xmlprofissionaiscnes.xml

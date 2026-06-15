@@ -1,3 +1,9 @@
+export type StatusTreinamento = 'realizado' | 'agendado' | 'aguardando';
+export type StatusCadastroAtualizacao = 'realizado' | 'aguardando';
+
+export const TREINAMENTO_OPCOES: StatusTreinamento[] = ['realizado', 'agendado', 'aguardando'];
+export const CADASTRO_ATUALIZACAO_OPCOES: StatusCadastroAtualizacao[] = ['realizado', 'aguardando'];
+
 export type ProfissionalPayload = {
   cnes?: string | null;
   nivelLotacao?: string | null;
@@ -24,6 +30,8 @@ export type ProfissionalPayload = {
   situacaoFamiliarConjugal?: string | null;
   frequentaEscola?: boolean;
   ativo?: boolean;
+  treinamento?: StatusTreinamento;
+  cadastroAtualizacao?: StatusCadastroAtualizacao;
 };
 
 export type DocumentosPayload = {
@@ -107,6 +115,8 @@ export type ProfissionalHistoricoItem = {
   createdAt: string;
 };
 
+export const PROFISSIONAIS_POR_PAGINA = 20;
+
 export type ProfissionalListItem = {
   id: string;
   nomeProfissional: string;
@@ -114,6 +124,16 @@ export type ProfissionalListItem = {
   cnes: string | null;
   vinculoPrincipal: string | null;
   ativo: boolean;
+  treinamento: StatusTreinamento;
+  cadastroAtualizacao: StatusCadastroAtualizacao;
+};
+
+export type ProfissionalListagemResposta = {
+  itens: ProfissionalListItem[];
+  total: number;
+  pagina: number;
+  porPagina: number;
+  totalPaginas: number;
 };
 
 export type ProfissionalDetalhe = ProfissionalListItem & {

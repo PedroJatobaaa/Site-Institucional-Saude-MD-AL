@@ -57,6 +57,34 @@ enum UserStatus {
   BLOQUEADO
 }
 
+model Perfil {
+  id          String   @id @default(uuid())
+  nome        String   @unique
+  descricao   String?
+  permissoes  String[] @default([])
+  cbosVinculo String[] @default([]) @map("cbos_vinculo")
+  prefixosCbo String[] @default([]) @map("prefixos_cbo")
+  ativo       Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  usuarios        Usuario[]
+  filasProducao   PermissaoProducaoPerfil[]
+
+  @@map("perfis")
+}
+
+model PermissaoProducaoPerfil {
+  id        String   @id @default(uuid())
+  perfilId  String   @map("perfil_id")
+  perfil    Perfil   @relation(fields: [perfilId], references: [id], onDelete: Cascade)
+  filaId    String   @map("fila_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([perfilId, filaId])
+  @@map("permissoes_producao_perfil")
+}
+
 model Usuario {
   id         String     @id @default(uuid())
   nome       String
@@ -64,16 +92,17 @@ model Usuario {
   senha      String
   cargo      String
   
-  // 👇 AS GAVETAS NOVAS AQUI 👇
   cpf             String?
   unidade         String?
   nivelLotacao    String?  @map("nivel_lotacao")
   unidadeLotacao  String?  @map("unidade_lotacao")
 
+  perfilId   String?  @map("perfil_id")
+  perfil     Perfil?  @relation(fields: [perfilId], references: [id], onDelete: SetNull)
+
   status     UserStatus @default(PENDENTE)
 
-  // No PostgreSQL, o Prisma permite salvar uma lista de strings diretamente
-  // Aqui guardaremos as chaves das permissões, ex: ["mural", "indicadores"]
+  // Permissões extras além do perfil vinculado
   permissoes String[]   @default([])
 
   createdAt  DateTime   @default(now())
@@ -83,6 +112,45 @@ model Usuario {
   permissoesProducao PermissaoProducaoUsuario[]
 
   @@map("usuarios")
+}
+
+model UnidadeSaude {
+  id           String   @id @default(uuid())
+  cnes         String?  @unique
+  nomeCnes     String?  @map("nome_cnes")
+  nomeLotacao  String   @map("nome_lotacao")
+  nivelLotacao String   @map("nivel_lotacao")
+  tipoUnidade  String?  @map("tipo_unidade")
+  cnpj         String?
+  logradouro   String?
+  bairro       String?
+  cep          String?
+  ativo        Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([nomeLotacao, nivelLotacao])
+  @@map("unidades_saude")
+}
+
+model ImportacaoCnes {
+  id              String   @id @default(uuid())
+  nomeArquivo     String   @map("nome_arquivo")
+  dataReferencia  String?  @map("data_referencia")
+  unidadesCriadas Int      @default(0) @map("unidades_criadas")
+  unidadesAtualizadas Int  @default(0) @map("unidades_atualizadas")
+  profissionaisCriados Int @default(0) @map("profissionais_criados")
+  profissionaisAtualizados Int @default(0) @map("profissionais_atualizados")
+  profissionaisInativados Int @default(0) @map("profissionais_inativados")
+  usuariosCriados Int      @default(0) @map("usuarios_criados")
+  usuariosAtualizados Int  @default(0) @map("usuarios_atualizados")
+  usuariosBloqueados Int   @default(0) @map("usuarios_bloqueados")
+  usuariosReativados Int   @default(0) @map("usuarios_reativados")
+  avisos          Json     @default("[]")
+  usuarioNome     String   @map("usuario_nome")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("importacoes_cnes")
 }
 
 model PermissaoProducaoUsuario {
@@ -160,6 +228,17 @@ enum TipoEventoProducao {
 enum TipoHistoricoProfissional {
   CRIACAO
   ALTERACAO
+}
+
+enum StatusTreinamentoProfissional {
+  REALIZADO
+  AGENDADO
+  AGUARDANDO
+}
+
+enum StatusCadastroAtualizacaoProfissional {
+  REALIZADO
+  AGUARDANDO
 }
 
 model UnidadeBasica {
@@ -247,6 +326,8 @@ model Profissional {
   situacaoFamiliarConjugal    String?  @map("situacao_familiar_conjugal")
   frequentaEscola             Boolean  @default(false) @map("frequenta_escola")
   ativo                       Boolean  @default(true)
+  treinamento                 StatusTreinamentoProfissional @default(AGUARDANDO)
+  cadastroAtualizacao         StatusCadastroAtualizacaoProfissional @default(AGUARDANDO) @map("cadastro_atualizacao")
   criadoPorNome               String?  @map("criado_por_nome")
   createdAt                   DateTime @default(now()) @map("created_at")
   updatedAt                   DateTime @updatedAt @map("updated_at")

@@ -2,16 +2,14 @@
 
 
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useRouter } from 'next/navigation';
 
 import Link from 'next/link';
 
 import {
-
-  ArrowLeft, Building2, Eye, FileDown, FilterX, Loader2, Pencil, Plus, Search, UserCog, Users,
-
+  ArrowLeft, Building2, ChevronLeft, ChevronRight, Eye, FileDown, FilterX, Loader2, Plus, Search, UserCog, Users,
 } from 'lucide-react';
 
 import UnidadeLotacaoSelect from '@/components/UnidadeLotacaoSelect';
@@ -20,11 +18,21 @@ import { listarProfissionais, obterProfissional } from '@/lib/profissionais/api'
 
 import { gerarPdfProfissional } from '@/lib/profissionais/gerarPdfProfissional';
 
-import type { ProfissionalListItem } from '@/lib/profissionais/types';
+import type {
+  ProfissionalListItem,
+  StatusCadastroAtualizacao,
+  StatusTreinamento,
+} from '@/lib/profissionais/types';
+
+import {
+  CADASTRO_ATUALIZACAO_OPCOES,
+  PROFISSIONAIS_POR_PAGINA,
+  TREINAMENTO_OPCOES,
+} from '@/lib/profissionais/types';
 
 import { getUsuario } from '@/lib/auth/session';
 
-import { aoMudarNivelLotacao } from '@/lib/usuarios/lotacao';
+import { aoMudarNivelLotacao, ehSecretariaSaude } from '@/lib/usuarios/lotacao';
 
 
 
@@ -58,6 +66,45 @@ function BadgeStatus({ ativo }: { ativo: boolean }) {
 
 }
 
+function rotuloOpcao<T extends string>(
+  valor: T,
+  opcoes: { value: T; label: string }[]
+) {
+  return opcoes.find((opcao) => opcao.value === valor)?.label ?? valor;
+}
+
+const badgeBase = 'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border';
+
+const coresStatus = {
+  vermelho: 'bg-red-50 text-red-700 border-red-200',
+  amarelo: 'bg-amber-50 text-amber-700 border-amber-200',
+  verde: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+} as const;
+
+function BadgeTreinamento({ status }: { status: StatusTreinamento }) {
+  const cor = status === 'aguardando'
+    ? coresStatus.vermelho
+    : status === 'agendado'
+      ? coresStatus.amarelo
+      : coresStatus.verde;
+
+  return (
+    <span className={`${badgeBase} ${cor}`}>
+      {rotuloOpcao(status, TREINAMENTO_OPCOES)}
+    </span>
+  );
+}
+
+function BadgeCadastroAtualizacao({ status }: { status: StatusCadastroAtualizacao }) {
+  const cor = status === 'aguardando' ? coresStatus.vermelho : coresStatus.verde;
+
+  return (
+    <span className={`${badgeBase} ${cor}`}>
+      {rotuloOpcao(status, CADASTRO_ATUALIZACAO_OPCOES)}
+    </span>
+  );
+}
+
 
 
 const inputFiltro =
@@ -74,8 +121,6 @@ const selectFiltro =
 
   'w-full h-11 px-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 outline-none appearance-none transition-shadow';
 
-
-
 export default function ProfissionaisListagemPage() {
 
   const router = useRouter();
@@ -83,6 +128,9 @@ export default function ProfissionaisListagemPage() {
   const [usuario, setUsuario] = useState<any>(null);
 
   const [profissionais, setProfissionais] = useState<ProfissionalListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [pagina, setPagina] = useState(1);
+  const [totalPaginas, setTotalPaginas] = useState(1);
 
   const [busca, setBusca] = useState('');
 
@@ -90,13 +138,24 @@ export default function ProfissionaisListagemPage() {
 
   const [unidadeLotacao, setUnidadeLotacao] = useState('');
 
+  const [filtroTreinamento, setFiltroTreinamento] = useState<StatusTreinamento | ''>('');
+
+  const [filtroCadastroAtualizacao, setFiltroCadastroAtualizacao] = useState<StatusCadastroAtualizacao | ''>('');
+
+  const [incluirInativos, setIncluirInativos] = useState(false);
+
   const [loading, setLoading] = useState(true);
 
   const [pdfGerandoId, setPdfGerandoId] = useState<string | null>(null);
 
+  const listaRef = useRef<HTMLDivElement>(null);
+  const deveRolarParaLista = useRef(false);
 
-
-  const temFiltroAtivo = Boolean(busca.trim() || nivelLotacao || unidadeLotacao);
+  const temFiltroAtivo = Boolean(
+    busca.trim() || nivelLotacao || unidadeLotacao || filtroTreinamento || filtroCadastroAtualizacao || incluirInativos
+  );
+  const inicioItem = total === 0 ? 0 : (pagina - 1) * PROFISSIONAIS_POR_PAGINA + 1;
+  const fimItem = total === 0 ? 0 : Math.min(pagina * PROFISSIONAIS_POR_PAGINA, total);
 
 
 
@@ -108,15 +167,26 @@ export default function ProfissionaisListagemPage() {
 
     unidadeLotacao?: string;
 
+    treinamento?: StatusTreinamento;
+
+    cadastroAtualizacao?: StatusCadastroAtualizacao;
+
+    pagina?: number;
+
+    incluirInativos?: boolean;
+
   }) => {
 
     setLoading(true);
 
     try {
 
-      const lista = await listarProfissionais(filtros);
+      const resposta = await listarProfissionais(filtros);
 
-      setProfissionais(lista);
+      setProfissionais(resposta.itens);
+      setTotal(resposta.total);
+      setPagina(resposta.pagina);
+      setTotalPaginas(resposta.totalPaginas);
 
     } catch (error) {
 
@@ -142,6 +212,20 @@ export default function ProfissionaisListagemPage() {
 
     setUnidadeLotacao('');
 
+    setFiltroTreinamento('');
+
+    setFiltroCadastroAtualizacao('');
+
+    setIncluirInativos(false);
+
+    setPagina(1);
+
+  };
+
+  const irParaPagina = (novaPagina: number) => {
+    if (novaPagina < 1 || novaPagina > totalPaginas || novaPagina === pagina || loading) return;
+    deveRolarParaLista.current = true;
+    setPagina(novaPagina);
   };
 
 
@@ -188,7 +272,7 @@ export default function ProfissionaisListagemPage() {
 
     if (!temPermissao(userObj.permissoes)) {
 
-      alert('Você não tem permissão para acessar o cadastro de profissionais.');
+      alert('Você não tem permissão para acessar o módulo Profissionais.');
 
       router.push('/painel');
 
@@ -198,11 +282,7 @@ export default function ProfissionaisListagemPage() {
 
     setUsuario(userObj);
 
-    carregar();
-
-  }, [router, carregar]);
-
-
+  }, [router]);
 
   useEffect(() => {
 
@@ -214,13 +294,28 @@ export default function ProfissionaisListagemPage() {
 
       nivelLotacao: nivelLotacao || undefined,
 
-      unidadeLotacao: unidadeLotacao || undefined,
+      unidadeLotacao: ehSecretariaSaude(nivelLotacao) ? undefined : (unidadeLotacao || undefined),
+
+      treinamento: filtroTreinamento || undefined,
+
+      cadastroAtualizacao: filtroCadastroAtualizacao || undefined,
+
+      pagina,
+
+      incluirInativos: incluirInativos || undefined,
 
     }), 300);
 
     return () => clearTimeout(timer);
 
-  }, [busca, nivelLotacao, unidadeLotacao, usuario, carregar]);
+  }, [busca, nivelLotacao, unidadeLotacao, filtroTreinamento, filtroCadastroAtualizacao, incluirInativos, pagina, usuario, carregar]);
+
+  useEffect(() => {
+    if (!loading && deveRolarParaLista.current && listaRef.current) {
+      listaRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      deveRolarParaLista.current = false;
+    }
+  }, [loading, profissionais]);
 
 
 
@@ -234,7 +329,7 @@ export default function ProfissionaisListagemPage() {
 
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-10 xl:px-12 py-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
 
           <div className="flex items-center gap-4">
 
@@ -250,7 +345,7 @@ export default function ProfissionaisListagemPage() {
 
                 <UserCog size={24} className="text-teal-600" />
 
-                Cadastro de Profissionais
+                Profissionais
 
               </h1>
 
@@ -278,15 +373,15 @@ export default function ProfissionaisListagemPage() {
 
 
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-4">
+      <main className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-10 xl:px-12 py-8 space-y-6">
 
         {/* Barra de filtros */}
 
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
 
-          <div className="flex flex-wrap items-end gap-x-4 gap-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-x-4 gap-y-4 items-end">
 
-            <div className="flex-[1.4] min-w-[220px]">
+            <div className="min-w-0 sm:col-span-2 lg:col-span-1">
 
               <label className={labelFiltro}>Buscar</label>
 
@@ -302,7 +397,7 @@ export default function ProfissionaisListagemPage() {
 
                   value={busca}
 
-                  onChange={(e) => setBusca(e.target.value)}
+                  onChange={(e) => { setBusca(e.target.value); setPagina(1); }}
 
                   className={inputFiltro}
 
@@ -314,49 +409,145 @@ export default function ProfissionaisListagemPage() {
 
 
 
-            <div className="flex-[2] min-w-[280px]">
+            <UnidadeLotacaoSelect
 
-              <UnidadeLotacaoSelect
+              inline
 
-                nivelLotacao={nivelLotacao}
+              modoFiltro
 
-                unidadeLotacao={unidadeLotacao}
+              nivelLotacao={nivelLotacao}
 
-                onNivelChange={(nivel) => {
+              unidadeLotacao={unidadeLotacao}
 
-                  const lotacao = aoMudarNivelLotacao(nivel);
+              onNivelChange={(nivel) => {
 
-                  setNivelLotacao(lotacao.nivelLotacao);
+                const lotacao = aoMudarNivelLotacao(nivel);
 
-                  setUnidadeLotacao(lotacao.unidadeLotacao);
+                setNivelLotacao(lotacao.nivelLotacao);
+
+                setUnidadeLotacao(lotacao.unidadeLotacao);
+
+                setPagina(1);
+
+              }}
+
+              onUnidadeChange={(unidade) => { setUnidadeLotacao(unidade); setPagina(1); }}
+
+              showIcon={false}
+
+              showSecretariaHint={false}
+
+              labelCategoria="Categoria"
+
+              labelUnidade="Unidade"
+
+              selectClassName={selectFiltro}
+
+              labelClassName={labelFiltro}
+
+            />
+
+
+
+            <div className="min-w-0">
+
+              <label className={labelFiltro}>Treinamento</label>
+
+              <select
+
+                value={filtroTreinamento}
+
+                onChange={(e) => {
+
+                  setFiltroTreinamento(e.target.value as StatusTreinamento | '');
+
+                  setPagina(1);
 
                 }}
 
-                onUnidadeChange={setUnidadeLotacao}
+                className={selectFiltro}
 
-                compact
+              >
 
-                showIcon={false}
+                <option value="">Todos</option>
 
-                showSecretariaHint={false}
+                {TREINAMENTO_OPCOES.map((opcao) => (
 
-                labelCategoria="Categoria"
+                  <option key={opcao.value} value={opcao.value}>{opcao.label}</option>
 
-                labelUnidade="Unidade"
+                ))}
 
-                selectClassName={selectFiltro}
-
-                labelClassName={labelFiltro}
-
-                className="!space-y-0"
-
-              />
+              </select>
 
             </div>
 
 
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="min-w-0">
+
+              <label className={labelFiltro}>Cadastro/Atualização</label>
+
+              <select
+
+                value={filtroCadastroAtualizacao}
+
+                onChange={(e) => {
+
+                  setFiltroCadastroAtualizacao(e.target.value as StatusCadastroAtualizacao | '');
+
+                  setPagina(1);
+
+                }}
+
+                className={selectFiltro}
+
+              >
+
+                <option value="">Todos</option>
+
+                {CADASTRO_ATUALIZACAO_OPCOES.map((opcao) => (
+
+                  <option key={opcao.value} value={opcao.value}>{opcao.label}</option>
+
+                ))}
+
+              </select>
+
+            </div>
+
+
+
+            <div className="flex items-end shrink-0 pb-0.5">
+
+              <label className="flex items-center gap-2 h-11 px-3 border border-slate-200 rounded-xl text-sm font-medium text-slate-600 cursor-pointer hover:bg-slate-50">
+
+                <input
+
+                  type="checkbox"
+
+                  checked={incluirInativos}
+
+                  onChange={(e) => {
+
+                    setIncluirInativos(e.target.checked);
+
+                    setPagina(1);
+
+                  }}
+
+                  className="rounded border-slate-300"
+
+                />
+
+                Incluir inativos
+
+              </label>
+
+            </div>
+
+
+
+            <div className="flex items-center gap-2 shrink-0 justify-end sm:col-span-2 lg:col-span-1">
 
               {temFiltroAtivo && (
 
@@ -394,9 +585,9 @@ export default function ProfissionaisListagemPage() {
 
                 <>
 
-                  <strong className="text-slate-700">{profissionais.length}</strong>
+                  <strong className="text-slate-700">{total}</strong>
 
-                  {profissionais.length === 1 ? ' profissional encontrado' : ' profissionais encontrados'}
+                  {total === 1 ? ' profissional encontrado' : ' profissionais encontrados'}
 
                 </>
 
@@ -422,27 +613,31 @@ export default function ProfissionaisListagemPage() {
 
         {/* Tabela */}
 
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div ref={listaRef} className="bg-white rounded-2xl border border-slate-200 shadow-sm scroll-mt-24">
 
           <div className="overflow-x-auto">
 
-            <table className="w-full text-left border-collapse">
+            <table className="w-full min-w-[1320px] text-left border-collapse">
 
               <thead>
 
                 <tr className="bg-slate-50/80 border-b border-slate-200">
 
-                  <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Nome</th>
+                  <th className="px-5 xl:px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[220px]">Nome</th>
 
-                  <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">CPF</th>
+                  <th className="px-5 xl:px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">CPF</th>
 
-                  <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">CNES</th>
+                  <th className="px-5 xl:px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[90px]">CNES</th>
 
-                  <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Unidade</th>
+                  <th className="px-5 xl:px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[200px]">Unidade</th>
 
-                  <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="px-5 xl:px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[90px]">Status</th>
 
-                  <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Ações</th>
+                  <th className="px-5 xl:px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Treinamento</th>
+
+                  <th className="px-5 xl:px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[170px]">Cadastro/Atualização</th>
+
+                  <th className="px-5 xl:px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right whitespace-nowrap w-32">Ações</th>
 
                 </tr>
 
@@ -454,7 +649,7 @@ export default function ProfissionaisListagemPage() {
 
                   <tr>
 
-                    <td colSpan={6} className="px-6 py-16 text-center">
+                    <td colSpan={8} className="px-6 py-16 text-center">
 
                       <div className="flex flex-col items-center gap-3 text-slate-400">
 
@@ -472,7 +667,7 @@ export default function ProfissionaisListagemPage() {
 
                   <tr>
 
-                    <td colSpan={6} className="px-6 py-16 text-center">
+                    <td colSpan={8} className="px-6 py-16 text-center">
 
                       <div className="flex flex-col items-center gap-3">
 
@@ -538,25 +733,25 @@ export default function ProfissionaisListagemPage() {
 
                     >
 
-                      <td className="px-6 py-4">
+                      <td className="px-5 xl:px-6 py-5 align-middle">
 
-                        <span className="font-bold text-slate-800">{p.nomeProfissional}</span>
+                        <span className="font-bold text-slate-800 leading-snug">{p.nomeProfissional}</span>
 
                       </td>
 
-                      <td className="px-6 py-4 font-mono text-sm text-slate-600">{p.cpf}</td>
+                      <td className="px-5 xl:px-6 py-5 font-mono text-sm text-slate-600 whitespace-nowrap align-middle">{p.cpf}</td>
 
-                      <td className="px-6 py-4 font-mono text-sm text-slate-600">{p.cnes || '—'}</td>
+                      <td className="px-5 xl:px-6 py-5 font-mono text-sm text-slate-600 whitespace-nowrap align-middle">{p.cnes || '—'}</td>
 
-                      <td className="px-6 py-4">
+                      <td className="px-5 xl:px-6 py-5 align-middle">
 
                         {p.vinculoPrincipal ? (
 
-                          <span className="inline-flex items-center gap-1.5 text-sm text-slate-700 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg max-w-[220px] truncate" title={p.vinculoPrincipal}>
+                          <span className="inline-flex items-center gap-1.5 text-sm text-slate-700 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-lg max-w-full" title={p.vinculoPrincipal}>
 
                             <Building2 size={13} className="text-teal-600 shrink-0" />
 
-                            {p.vinculoPrincipal}
+                            <span className="break-words">{p.vinculoPrincipal}</span>
 
                           </span>
 
@@ -568,15 +763,27 @@ export default function ProfissionaisListagemPage() {
 
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="px-5 xl:px-6 py-5 align-middle">
 
                         <BadgeStatus ativo={p.ativo} />
 
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="px-5 xl:px-6 py-5 align-middle">
 
-                        <div className="flex items-center justify-end gap-1">
+                        <BadgeTreinamento status={p.treinamento} />
+
+                      </td>
+
+                      <td className="px-5 xl:px-6 py-5 align-middle">
+
+                        <BadgeCadastroAtualizacao status={p.cadastroAtualizacao} />
+
+                      </td>
+
+                      <td className="px-5 xl:px-6 py-5 whitespace-nowrap align-middle">
+
+                        <div className="flex items-center justify-end gap-1 shrink-0">
 
                           <Link
 
@@ -589,20 +796,6 @@ export default function ProfissionaisListagemPage() {
                           >
 
                             <Eye size={18} />
-
-                          </Link>
-
-                          <Link
-
-                            href={`/painel/profissionais/${p.id}/editar`}
-
-                            className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-
-                            title="Editar"
-
-                          >
-
-                            <Pencil size={18} />
 
                           </Link>
 
@@ -647,6 +840,39 @@ export default function ProfissionaisListagemPage() {
             </table>
 
           </div>
+
+          {!loading && total > 0 && (
+            <div className="px-5 xl:px-8 py-5 border-t border-slate-100 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <p className="text-sm text-slate-600 font-medium">
+                Mostrando <strong className="text-slate-800">{inicioItem}</strong>–<strong className="text-slate-800">{fimItem}</strong> de{' '}
+                <strong className="text-slate-800">{total}</strong>
+                <span className="text-slate-400 mx-2">•</span>
+                Página <strong className="text-slate-800">{pagina}</strong> de <strong className="text-slate-800">{totalPaginas}</strong>
+              </p>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => irParaPagina(pagina - 1)}
+                  disabled={pagina <= 1 || loading}
+                  className="h-10 px-4 inline-flex items-center gap-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 bg-white hover:bg-slate-50 hover:text-blue-600 hover:border-blue-200 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  <ChevronLeft size={16} />
+                  Anterior
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => irParaPagina(pagina + 1)}
+                  disabled={pagina >= totalPaginas || loading}
+                  className="h-10 px-4 inline-flex items-center gap-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 bg-white hover:bg-slate-50 hover:text-blue-600 hover:border-blue-200 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  Próxima
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          )}
 
         </div>
 

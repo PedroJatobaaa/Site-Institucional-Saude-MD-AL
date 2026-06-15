@@ -134,6 +134,13 @@ export default function SolicitarAcesso() {
 
         {/* CORPO DO FORMULÁRIO */}
         <div className="p-8">
+          <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            Já consta na base do CNES? Não solicite acesso aqui — vá direto ao{' '}
+            <Link href="/login" className="font-bold underline hover:text-blue-700">
+              login
+            </Link>{' '}
+            com seu CPF e a senha inicial informada pela administração.
+          </div>
           <form onSubmit={handleSubmit} className="space-y-6">
             
             {/* BLOCO 1: DADOS PESSOAIS */}

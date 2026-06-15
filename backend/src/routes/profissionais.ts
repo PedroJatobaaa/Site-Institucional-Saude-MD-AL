@@ -1,6 +1,14 @@
 import type { Express, Request, Response } from 'express';
 import type { PrismaClient } from '@prisma/client';
-import type { ProfissionalCompletoPayload } from '../types/profissionais';
+import type {
+  ProfissionalCompletoPayload,
+  StatusCadastroAtualizacao,
+  StatusTreinamento,
+} from '../types/profissionais';
+import {
+  CADASTRO_ATUALIZACAO_OPCOES,
+  TREINAMENTO_OPCOES,
+} from '../types/profissionais';
 import {
   criarProfissional,
   atualizarProfissional,
@@ -18,19 +26,34 @@ import {
   inferirNivelPorUnidade,
   validarLotacao,
 } from '../utils/validators/lotacao';
+import { carregarUnidadesPorNivel } from '../utils/unidadesCache';
 
-function validarFiltrosListagem(nivelLotacao?: string, unidadeLotacao?: string): string | null {
+function validarFiltrosListagem(
+  nivelLotacao?: string,
+  unidadeLotacao?: string,
+  treinamento?: string,
+  cadastroAtualizacao?: string,
+  unidadesMapa?: Record<string, readonly string[]>,
+): string | null {
   if (nivelLotacao && !NIVEIS_LOTACAO.includes(nivelLotacao as (typeof NIVEIS_LOTACAO)[number])) {
     return 'Categoria de lotação inválida.';
   }
 
   if (unidadeLotacao) {
     if (nivelLotacao) {
-      const lotacao = validarLotacao(nivelLotacao, unidadeLotacao);
+      const lotacao = validarLotacao(nivelLotacao, unidadeLotacao, unidadesMapa);
       if (!lotacao.ok) return lotacao.erro;
     } else if (!inferirNivelPorUnidade(unidadeLotacao)) {
       return 'Unidade de lotação inválida.';
     }
+  }
+
+  if (treinamento && !TREINAMENTO_OPCOES.includes(treinamento as StatusTreinamento)) {
+    return 'Status de treinamento inválido.';
+  }
+
+  if (cadastroAtualizacao && !CADASTRO_ATUALIZACAO_OPCOES.includes(cadastroAtualizacao as StatusCadastroAtualizacao)) {
+    return 'Status de cadastro/atualização inválido.';
   }
 
   return null;
@@ -46,7 +69,10 @@ function temAcessoProfissionais(permissoes: string[]) {
   return permissoes.includes('profissionais_gerenciar') || permissoes.includes('admin');
 }
 
-function validarPayloadDocumentos(payload: ProfissionalCompletoPayload): string | null {
+function validarPayloadDocumentos(
+  payload: ProfissionalCompletoPayload,
+  unidadesMapa?: Record<string, readonly string[]>,
+): string | null {
   const { profissional } = payload;
 
   if (!profissional?.nomeProfissional?.trim()) {
@@ -65,12 +91,19 @@ function validarPayloadDocumentos(payload: ProfissionalCompletoPayload): string 
     return 'CNS inválido.';
   }
 
-  const lotacao = validarLotacao(profissional.nivelLotacao, profissional.unidadeLotacao);
+  const lotacao = validarLotacao(profissional.nivelLotacao, profissional.unidadeLotacao, unidadesMapa);
   if (!lotacao.ok) {
     return lotacao.erro;
   }
   profissional.nivelLotacao = lotacao.dados.nivelLotacao;
   profissional.unidadeLotacao = lotacao.dados.unidadeLotacao;
+
+  if (profissional.treinamento && !TREINAMENTO_OPCOES.includes(profissional.treinamento)) {
+    return 'Status de treinamento inválido.';
+  }
+  if (profissional.cadastroAtualizacao && !CADASTRO_ATUALIZACAO_OPCOES.includes(profissional.cadastroAtualizacao)) {
+    return 'Status de cadastro/atualização inválido.';
+  }
 
   return null;
 }
@@ -88,14 +121,28 @@ export function registerProfissionalRoutes(
     try {
       const { permissoes } = req.usuario as UsuarioToken;
       if (!temAcessoProfissionais(permissoes)) {
-        return res.status(403).json({ erro: 'Sem permissão para o cadastro de profissionais.' });
+        return res.status(403).json({ erro: 'Sem permissão para acessar o módulo Profissionais.' });
       }
 
       const q = typeof req.query.q === 'string' ? req.query.q : undefined;
       const nivelLotacao = typeof req.query.nivel_lotacao === 'string' ? req.query.nivel_lotacao : undefined;
       const unidadeLotacao = typeof req.query.unidade_lotacao === 'string' ? req.query.unidade_lotacao : undefined;
+      const treinamento = typeof req.query.treinamento === 'string' ? req.query.treinamento : undefined;
+      const cadastroAtualizacao = typeof req.query.cadastro_atualizacao === 'string'
+        ? req.query.cadastro_atualizacao
+        : undefined;
+      const paginaRaw = typeof req.query.pagina === 'string' ? Number.parseInt(req.query.pagina, 10) : 1;
+      const pagina = Number.isFinite(paginaRaw) && paginaRaw > 0 ? paginaRaw : 1;
+      const incluirInativos = req.query.incluir_inativos === '1';
 
-      const erroFiltro = validarFiltrosListagem(nivelLotacao, unidadeLotacao);
+      const mapaUnidades = await carregarUnidadesPorNivel(prisma);
+      const erroFiltro = validarFiltrosListagem(
+        nivelLotacao,
+        unidadeLotacao,
+        treinamento,
+        cadastroAtualizacao,
+        mapaUnidades,
+      );
       if (erroFiltro) {
         return res.status(400).json({ erro: erroFiltro });
       }
@@ -104,6 +151,10 @@ export function registerProfissionalRoutes(
         q,
         nivelLotacao,
         unidadeLotacao,
+        treinamento: treinamento as StatusTreinamento | undefined,
+        cadastroAtualizacao: cadastroAtualizacao as StatusCadastroAtualizacao | undefined,
+        pagina,
+        incluirInativos,
       });
       return res.json(lista);
     } catch (error) {
@@ -116,7 +167,7 @@ export function registerProfissionalRoutes(
     try {
       const { permissoes } = req.usuario as UsuarioToken;
       if (!temAcessoProfissionais(permissoes)) {
-        return res.status(403).json({ erro: 'Sem permissão para o cadastro de profissionais.' });
+        return res.status(403).json({ erro: 'Sem permissão para acessar o módulo Profissionais.' });
       }
 
       const profissional = await obterProfissional(prisma, req.params.id);
@@ -134,11 +185,12 @@ export function registerProfissionalRoutes(
     try {
       const { permissoes, id: usuarioId, nome } = req.usuario as UsuarioToken;
       if (!temAcessoProfissionais(permissoes)) {
-        return res.status(403).json({ erro: 'Sem permissão para o cadastro de profissionais.' });
+        return res.status(403).json({ erro: 'Sem permissão para acessar o módulo Profissionais.' });
       }
 
       const payload = req.body as ProfissionalCompletoPayload;
-      const erroValidacao = validarPayloadDocumentos(payload);
+      const mapaUnidades = await carregarUnidadesPorNivel(prisma);
+      const erroValidacao = validarPayloadDocumentos(payload, mapaUnidades);
       if (erroValidacao) {
         return res.status(400).json({ erro: erroValidacao });
       }
@@ -161,11 +213,12 @@ export function registerProfissionalRoutes(
     try {
       const { permissoes, id: usuarioId, nome } = req.usuario as UsuarioToken;
       if (!temAcessoProfissionais(permissoes)) {
-        return res.status(403).json({ erro: 'Sem permissão para o cadastro de profissionais.' });
+        return res.status(403).json({ erro: 'Sem permissão para acessar o módulo Profissionais.' });
       }
 
       const payload = req.body as ProfissionalCompletoPayload;
-      const erroValidacao = validarPayloadDocumentos(payload);
+      const mapaUnidades = await carregarUnidadesPorNivel(prisma);
+      const erroValidacao = validarPayloadDocumentos(payload, mapaUnidades);
       if (erroValidacao) {
         return res.status(400).json({ erro: erroValidacao });
       }

@@ -17,10 +17,12 @@ import {
 } from '@/lib/profissionais/documentos';
 import type { ProfissionalCompletoPayload } from '@/lib/profissionais/types';
 import {
+  CADASTRO_ATUALIZACAO_OPCOES,
   ESCOLARIDADE_OPCOES,
   RACA_COR_OPCOES,
   SEXO_OPCOES,
   SITUACAO_FAMILIAR_OPCOES,
+  TREINAMENTO_OPCOES,
   TIPO_CERTIDAO_OPCOES,
   TIPO_LOGRADOURO_OPCOES,
   UFS,
@@ -163,20 +165,68 @@ export default function ProfissionalForm({
         </div>
       )}
 
-      {modoEdicao && !readOnly && (
-        <div className="mx-6 mt-6 p-4 bg-slate-50 border border-slate-200 rounded-xl">
-          <label className="block text-sm font-bold text-slate-700 mb-2">Situação do cadastro</label>
-          <select
-            value={p.ativo === false ? 'inativo' : 'ativo'}
-            onChange={(e) => setProf('ativo', e.target.value === 'ativo')}
-            className={selectClass}
-          >
-            <option value="ativo">Ativo</option>
-            <option value="inativo">Inativo</option>
-          </select>
-          <p className="text-xs text-slate-500 mt-2">
-            Cadastros inativos permanecem no sistema para fins de auditoria e não podem ser excluídos.
-          </p>
+      {(modoEdicao || readOnly) && (
+        <div className="mx-6 mt-6 p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+          <h3 className="text-sm font-bold text-slate-700">Situação e acompanhamento</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Situação do cadastro</label>
+              {readOnly ? (
+                <p className={inputClass}>{p.ativo === false ? 'Inativo' : 'Ativo'}</p>
+              ) : (
+                <select
+                  value={p.ativo === false ? 'inativo' : 'ativo'}
+                  onChange={(e) => setProf('ativo', e.target.value === 'ativo')}
+                  className={selectClass}
+                >
+                  <option value="ativo">Ativo</option>
+                  <option value="inativo">Inativo</option>
+                </select>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Treinamento</label>
+              {readOnly ? (
+                <p className={inputClass}>
+                  {TREINAMENTO_OPCOES.find((opcao) => opcao.value === p.treinamento)?.label || 'Aguardando'}
+                </p>
+              ) : (
+                <select
+                  value={p.treinamento || 'aguardando'}
+                  onChange={(e) => setProf('treinamento', e.target.value)}
+                  className={selectClass}
+                >
+                  {TREINAMENTO_OPCOES.map((opcao) => (
+                    <option key={opcao.value} value={opcao.value}>{opcao.label}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Cadastro/Atualização</label>
+              {readOnly ? (
+                <p className={inputClass}>
+                  {CADASTRO_ATUALIZACAO_OPCOES.find((opcao) => opcao.value === p.cadastroAtualizacao)?.label || 'Aguardando'}
+                </p>
+              ) : (
+                <select
+                  value={p.cadastroAtualizacao || 'aguardando'}
+                  onChange={(e) => setProf('cadastroAtualizacao', e.target.value)}
+                  className={selectClass}
+                >
+                  {CADASTRO_ATUALIZACAO_OPCOES.map((opcao) => (
+                    <option key={opcao.value} value={opcao.value}>{opcao.label}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+          {!readOnly && (
+            <p className="text-xs text-slate-500">
+              Cadastros inativos permanecem no sistema para fins de auditoria e não podem ser excluídos.
+              Ao salvar qualquer alteração nos dados do profissional, o status de Cadastro/Atualização será definido automaticamente como Aguardando.
+            </p>
+          )}
         </div>
       )}
 

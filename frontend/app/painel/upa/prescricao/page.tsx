@@ -45,13 +45,15 @@ export default function NovaPrescricao() {
   // ==========================================
   const protocolos = {
     padrao: [
-      { dev: 'EV', descricao: 'DIPIRONA 500MG/ML, 02ML + AD', horario: '6/6 HORAS' },
-      { dev: 'EV', descricao: 'TRAMAL 50MG/ML + 100ML DE SF (LENTO)', horario: '8/8 HORAS (SOS)' },
-      { dev: 'EV', descricao: 'BROMOPRIDA 01 AMP + AD', horario: '8/8 HORAS (SOS)' },
-      { dev: 'VO', descricao: 'CAPTOPRIL 25MG 01 CP SE PA ≥ 160x110 mmHg', horario: '8/8 HORAS' },
-      { dev: 'SC', descricao: 'INSULINA REGULAR - ESQUEMA: 200-250 (4UI) | 251-300 (6UI) | 301-350 (8UI) | 351-400 (10UI) | >400 (12UI)', horario: 'S/N' },
-      { dev: 'EV', descricao: 'GLICOSE 50%, 03 AMP (BOLUS) SE HGT ≤ 70MG/DL', horario: 'S/N' },
-      { dev: 'EV', descricao: 'OMEPRAZOL 40MG', horario: '24/24 HORAS' },
+      { dev: '-',  descricao: 'DIETA:', horario: '' },
+      { dev: 'EV', descricao: 'CEFTRIAXONA 2G + 100ML SF 0,9% 24H --- D0:', horario: '' },
+      { dev: 'EV', descricao: 'DIPIRONA 500MG/ML, 02ML + AD SE DOR OU FEBRE, 6/6H ', horario: '' },
+      { dev: 'EV', descricao: 'TRAMAL 50MG/ML + 100ML DE SF (LENTO), SE DOR REFRATRIA, 8/8H', horario: '' },
+      { dev: 'EV', descricao: 'BROMOPRIDA 01 AMP + AD, SE NAUSEA OU VOMITO, 8/8H', horario: '' },
+      { dev: 'VO', descricao: 'CAPTOPRIL 25MG 01 CP SE PA ≥ 160x110 mmHg', horario: '' },
+      { dev: 'SC', descricao: 'INSULINA REGULAR - ESQUEMA: 200-250 (4UI) | 251-300 (6UI) | 301-350 (8UI) | 351-400 (10UI) | >400 (12UI)', horario: '' },
+      { dev: 'EV', descricao: 'GLICOSE 50%, 03 AMP (BOLUS) SE HGT ≤ 70MG/DL', horario: '' },
+      { dev: 'VO', descricao: 'OMEPRAZOL 20MG, 01 CP MANHA EM JEJUM', horario: '' },
       { dev: '-',  descricao: 'ELEVAR CABECEIRA 30°', horario: 'CONTÍNUO' },
       { dev: '-',  descricao: 'MUDAR DECÚBITO', horario: '2/2 HORAS' },
       { dev: '-',  descricao: 'SINAIS VITAIS E CUIDADOS GERAIS', horario: '6/6 HORAS' },

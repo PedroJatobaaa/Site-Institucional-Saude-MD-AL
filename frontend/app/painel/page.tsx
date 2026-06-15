@@ -111,7 +111,7 @@ export default function PainelPrincipal() {
     },
     {
       id: 'profissionais',
-      titulo: 'Cadastro de Profissionais',
+      titulo: 'Profissionais',
       descricao: 'Ficha cadastral de profissionais de saúde conforme modelo SUS.',
       icone: <UserCog size={28} className="text-teal-600" />,
       bgIcone: 'bg-teal-100',

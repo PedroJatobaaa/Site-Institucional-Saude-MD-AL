@@ -44,6 +44,8 @@ const ROTULOS_PROFISSIONAL: Record<string, string> = {
   situacaoFamiliarConjugal: 'Situação familiar/conjugal',
   frequentaEscola: 'Frequenta escola',
   ativo: 'Situação do cadastro',
+  treinamento: 'Treinamento',
+  cadastroAtualizacao: 'Cadastro/Atualização',
 };
 
 const ROTULOS_DOCUMENTOS: Record<string, string> = {
@@ -103,6 +105,10 @@ function normalizarValor(chave: string, valor: unknown): string | null {
   if (valor === null || valor === undefined || valor === '') return null;
   if (chave === 'ativo') {
     return valor === true || valor === 'true' ? 'Ativo' : 'Inativo';
+  }
+  if (chave === 'treinamento' || chave === 'cadastroAtualizacao') {
+    const rotulo = String(valor);
+    return rotulo.charAt(0).toUpperCase() + rotulo.slice(1);
   }
   if (CAMPOS_BOOLEAN.has(chave)) {
     return valor === true || valor === 'true' ? 'Sim' : 'Não';
