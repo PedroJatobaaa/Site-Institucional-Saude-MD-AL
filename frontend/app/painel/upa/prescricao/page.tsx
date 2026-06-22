@@ -647,9 +647,11 @@ export default function NovaPrescricao() {
                       <div>
                         <div className="flex items-center gap-2 text-slate-700 font-bold">
                           <Clock size={16} className="text-blue-500" />
-                          {prescricao.data_hora}
+                          {prescricao.data_hora} · {prescricao.medico_nome || 'Profissional não informado'}
                         </div>
-                        <p className="text-xs text-slate-400 mt-1">Setor: {prescricao.setor || 'Não informado'} • {prescricao.itens.length} itens prescritos</p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          Setor: {prescricao.setor || 'Não informado'} • Profissional: {prescricao.medico_nome || 'Profissional não informado'} • {prescricao.itens.length} itens prescritos
+                        </p>
                       </div>
                       <div className="text-slate-300 group-hover:text-blue-500 transition-colors">
                         {idExpandido === prescricao.id ? <ChevronUp size={20} /> : <ChevronDown size={20} />}

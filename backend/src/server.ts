@@ -484,7 +484,7 @@ app.get('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promis
       return res.status(403).json({ erro: 'Sem permissão.' });
     }
 
-    const termoBusca = req.query.q as string;
+    const termoBusca = (req.query.q as string).trim();
     if (!termoBusca || termoBusca.length < 3) {
       console.log("⚠️ Termo muito curto, cancelando busca.");
       return res.status(200).json([]); 
@@ -493,20 +493,32 @@ app.get('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promis
     console.log("⏳ Consultando o banco de dados Prisma...");
 
     const termoLimpo = limparNumeros(termoBusca);
-    const condicoesBusca: Record<string, unknown>[] = [
-      { nome: { contains: termoBusca, mode: 'insensitive' } },
-      { cpf: { contains: termoBusca } },
-      { cns: { contains: termoBusca } },
-    ];
-    if (termoLimpo.length >= 3 && termoLimpo !== termoBusca) {
-      condicoesBusca.push({ cpf: { contains: termoLimpo } });
-      condicoesBusca.push({ cns: { contains: termoLimpo } });
-    }
+    const padraoNome = `%${termoBusca}%`;
+    const padraoDocumento = `%${termoLimpo}%`;
 
-    const pacientes = await prisma.paciente.findMany({
-      where: { OR: condicoesBusca },
-      take: 15
-    });
+    const pacientes = termoLimpo.length >= 3
+      ? await prisma.$queryRaw<Array<{
+          id: number;
+          cpf: string | null;
+          cns: string | null;
+          nome: string;
+          data_nascimento: string | null;
+          idade: number | null;
+          sexo: string | null;
+          registro_hc: string | null;
+          createdAt: Date;
+        }>>`
+          SELECT *
+          FROM "Paciente"
+          WHERE nome ILIKE ${padraoNome}
+             OR regexp_replace(COALESCE(cpf, ''), '[^0-9]', '', 'g') LIKE ${padraoDocumento}
+             OR regexp_replace(COALESCE(cns, ''), '[^0-9]', '', 'g') LIKE ${padraoDocumento}
+          LIMIT 15
+        `
+      : await prisma.paciente.findMany({
+          where: { nome: { contains: termoBusca, mode: 'insensitive' } },
+          take: 15,
+        });
 
     console.log(`✅ Sucesso! O banco encontrou ${pacientes.length} pacientes.`);
     return res.status(200).json(pacientes);
