@@ -39,6 +39,13 @@ export default function NovaPrescricao() {
   // Estados: Histórico (Linha do Tempo)
   const [historico, setHistorico] = useState<any[]>([]);
   const [idExpandido, setIdExpandido] = useState<number | null>(null);
+  const [pdfSnapshot, setPdfSnapshot] = useState<{
+    setor: string;
+    leito: string;
+    custo: string;
+    itens: any[];
+    dataPrescricao?: string;
+  } | null>(null);
 
   // ==========================================
   // PROTOCOLOS RÁPIDOS (KITS PRESCRIÇÃO)
@@ -87,10 +94,21 @@ export default function NovaPrescricao() {
   };
 
   const contentRef = useRef<HTMLDivElement>(null);
+  const aguardandoImpressao = useRef(false);
   const gerarPDF = useReactToPrint({
     contentRef,
     documentTitle: `Prescricao_${pacienteSelecionado?.nome || 'Paciente'}`,
   });
+
+  useEffect(() => {
+    if (!aguardandoImpressao.current || !pdfSnapshot) return;
+    aguardandoImpressao.current = false;
+    const timer = setTimeout(() => {
+      gerarPDF();
+      setPdfSnapshot(null);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [pdfSnapshot, gerarPDF]);
 
   const handlePrint = async () => {
     if (!pacienteSelecionado) {
@@ -125,6 +143,41 @@ export default function NovaPrescricao() {
       console.error("Erro de conexão ao salvar prescrição:", error);
     }
     gerarPDF();
+  };
+
+  const extrairDataPrescricao = (prescricao: any) => {
+    if (prescricao.data_hora) {
+      const parteData = prescricao.data_hora.split(',')[0]?.trim();
+      if (parteData) return parteData;
+    }
+    if (prescricao.data_prescricao) {
+      return new Date(prescricao.data_prescricao).toLocaleDateString('pt-BR');
+    }
+    return undefined;
+  };
+
+  const gerarPDFHistorico = (prescricao: any) => {
+    if (!pacienteSelecionado) {
+      alert("Por favor, selecione ou cadastre um paciente antes de gerar o PDF.");
+      return;
+    }
+    if (!pacienteSelecionado.cpf || pacienteSelecionado.cpf.trim() === '') {
+      alert(" ATENÇÃO: É obrigatório informar o CPF do paciente para gerar a prescrição.");
+      setEditando(true);
+      return;
+    }
+
+    aguardandoImpressao.current = true;
+    setPdfSnapshot({
+      setor: prescricao.setor || '',
+      leito: prescricao.leito || '',
+      custo: prescricao.custo || '',
+      itens: prescricao.itens.map((item: any, index: number) => ({
+        ...item,
+        id: item.id ?? `${prescricao.id}-${index}`,
+      })),
+      dataPrescricao: extrairDataPrescricao(prescricao),
+    });
   };
 
   useEffect(() => {
@@ -260,6 +313,12 @@ export default function NovaPrescricao() {
     if (index <= 0) return;
     const novaLista = [...itens];
     [novaLista[index - 1], novaLista[index]] = [novaLista[index], novaLista[index - 1]];
+    setItens(novaLista);
+  };
+  const moverItemParaBaixo = (index: number) => {
+    if (index >= itens.length - 1) return;
+    const novaLista = [...itens];
+    [novaLista[index], novaLista[index + 1]] = [novaLista[index + 1], novaLista[index]];
     setItens(novaLista);
   };
   const atualizarItem = (id: number, campo: string, valor: string) => {
@@ -538,6 +597,16 @@ export default function NovaPrescricao() {
                           <ChevronUp size={16} />
                         </button>
                       )}
+                      {index < itens.length - 1 && (
+                        <button
+                          type="button"
+                          onClick={() => moverItemParaBaixo(index)}
+                          title="Descer item"
+                          className="p-1 text-slate-300 hover:text-blue-500 transition-colors"
+                        >
+                          <ChevronDown size={16} />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => removerLinha(item.id, index)}
@@ -598,12 +667,22 @@ export default function NovaPrescricao() {
                             </li>
                           ))}
                         </ul>
-                        <button 
-                          onClick={() => duplicarPrescricaoAnterior(prescricao)}
-                          className="w-full flex justify-center items-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-2.5 rounded-lg transition-colors text-sm"
-                        >
-                          <Copy size={16} /> Carregar e Editar esta Prescrição
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => duplicarPrescricaoAnterior(prescricao)}
+                            className="flex-1 flex justify-center items-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-2.5 rounded-lg transition-colors text-sm"
+                          >
+                            <Copy size={16} /> Carregar e Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => gerarPDFHistorico(prescricao)}
+                            className="flex-1 flex justify-center items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-lg transition-colors text-sm"
+                          >
+                            <Printer size={16} /> Gerar PDF
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -656,10 +735,11 @@ export default function NovaPrescricao() {
         <ReceitaPDF 
           ref={contentRef}
           paciente={pacienteSelecionado} 
-          setor={setor} 
-          leito={leito} 
-          custo={custo}
-          itens={itens} 
+          setor={pdfSnapshot?.setor ?? setor} 
+          leito={pdfSnapshot?.leito ?? leito} 
+          custo={pdfSnapshot?.custo ?? custo}
+          itens={pdfSnapshot?.itens ?? itens}
+          dataPrescricao={pdfSnapshot?.dataPrescricao}
         />
       </div>
     </div>
