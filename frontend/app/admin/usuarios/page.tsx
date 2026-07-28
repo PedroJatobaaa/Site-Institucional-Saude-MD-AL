@@ -9,7 +9,13 @@ import {
   lotacaoCompleta,
 } from '@/lib/usuarios/lotacao';
 import { FILAS_PRODUCAO } from '@/lib/producao/filasProducao';
-import { PERMISSOES_DISPONIVEIS } from '@/lib/admin/permissoes';
+import {
+  PERMISSOES_DISPONIVEIS,
+  SUBMODULOS_UPA,
+  IDS_SUBMODULOS_UPA,
+  isSubmoduloUpa,
+  contarSubmodulosUpa,
+} from '@/lib/admin/permissoes';
 import { formatarCPFExibicao } from '@/lib/profissionais/documentos';
 import {
   listarUsuariosAdmin,
@@ -102,6 +108,7 @@ export default function AdminUsuariosPage() {
   };
 
   const temPermissaoEnvioProducao = (permissoes: string[] = []) => permissoes.includes('ROLE_UBS');
+  const temModuloUpa = (permissoes: string[] = []) => permissoes.includes('upa_acesso');
 
   const togglePermissaoExtra = (idPermissao: string) => {
     if (!userEditando) return;
@@ -112,8 +119,14 @@ export default function AdminUsuariosPage() {
 
     if (temPermissao) {
       novasPermissoes = userEditando.permissoes.filter((p) => p !== idPermissao);
+      if (idPermissao === 'upa_acesso') {
+        novasPermissoes = novasPermissoes.filter((p) => !IDS_SUBMODULOS_UPA.includes(p));
+      }
     } else {
       novasPermissoes = [...userEditando.permissoes, idPermissao];
+      if (isSubmoduloUpa(idPermissao) && !novasPermissoes.includes('upa_acesso') && !permissoesDoPerfil.includes('upa_acesso')) {
+        novasPermissoes.push('upa_acesso');
+      }
     }
 
     const atualizacao: UsuarioAdmin = { ...userEditando, permissoes: novasPermissoes };
@@ -156,6 +169,13 @@ export default function AdminUsuariosPage() {
 
     if (envioProducaoAtivo && filasDoPerfil.length + filasExtras.length === 0) {
       alert('Selecione ao menos uma fila de envio (Unidade + Sistema) para o usuário de produções.');
+      return;
+    }
+
+    const upaAtivo = temModuloUpa(permissoesEfetivasEdicao);
+    const submodulosUpaEfetivos = contarSubmodulosUpa(permissoesEfetivasEdicao);
+    if (upaAtivo && submodulosUpaEfetivos === 0) {
+      alert('Selecione ao menos um submódulo da UPA (Prescrição ou Controle de Medicamentos).');
       return;
     }
 
@@ -571,9 +591,94 @@ export default function AdminUsuariosPage() {
                 <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-2 max-h-[16rem] overflow-y-auto">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                     {PERMISSOES_DISPONIVEIS.map((perm) => {
+                      if (isSubmoduloUpa(perm.id)) return null;
+
                       const veioDoPerfil = permissoesDoPerfil.includes(perm.id);
                       const marcadoExtra = userEditando.permissoes.includes(perm.id);
                       const marcado = veioDoPerfil || marcadoExtra;
+
+                      if (perm.id === 'upa_acesso') {
+                        const upaAtivo = temModuloUpa(permissoesEfetivasEdicao);
+                        const submodulosMarcados = contarSubmodulosUpa(permissoesEfetivasEdicao);
+
+                        return (
+                          <div key={perm.id} className="sm:col-span-2 space-y-2">
+                            <label
+                              className={`flex items-start gap-2 p-2 rounded-lg border transition-all ${
+                                veioDoPerfil
+                                  ? 'bg-violet-50 border-violet-200 cursor-default'
+                                  : marcado
+                                    ? 'bg-blue-50 border-blue-200 cursor-pointer'
+                                    : 'bg-white border-slate-200 hover:border-blue-100 cursor-pointer'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={marcado}
+                                disabled={veioDoPerfil}
+                                onChange={() => togglePermissaoExtra(perm.id)}
+                                className="mt-0.5 w-4 h-4 text-blue-600 rounded focus:ring-blue-500 shrink-0"
+                              />
+                              <span className="min-w-0">
+                                <span className={`block text-xs font-medium leading-snug ${marcado ? 'text-blue-900' : 'text-slate-600'}`}>
+                                  {perm.nome}
+                                  {veioDoPerfil && (
+                                    <span className="ml-1 text-[10px] text-violet-600 font-bold">(perfil)</span>
+                                  )}
+                                </span>
+                                {upaAtivo && (
+                                  <span className="block text-[10px] text-blue-600 mt-0.5">
+                                    {submodulosMarcados > 0
+                                      ? `${submodulosMarcados} submódulo(s) selecionado(s)`
+                                      : 'Selecione abaixo os submódulos liberados'}
+                                  </span>
+                                )}
+                              </span>
+                            </label>
+
+                            {upaAtivo && (
+                              <div className="ml-4 sm:ml-6 pl-3 border-l-2 border-rose-300 space-y-2">
+                                <p className="text-[10px] font-bold text-rose-800 uppercase tracking-wider">
+                                  Submódulos da UPA
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 rounded-xl border border-rose-200 bg-rose-50/60 p-2">
+                                  {SUBMODULOS_UPA.map((sub) => {
+                                    const doPerfil = permissoesDoPerfil.includes(sub.id);
+                                    const selecionada =
+                                      doPerfil || userEditando.permissoes.includes(sub.id);
+                                    return (
+                                      <label
+                                        key={sub.id}
+                                        className={`flex items-start gap-2 p-2 rounded-lg border transition-all ${
+                                          doPerfil
+                                            ? 'bg-violet-50 border-violet-200 cursor-default'
+                                            : selecionada
+                                              ? 'bg-rose-100 border-rose-300 cursor-pointer'
+                                              : 'bg-white border-slate-200 hover:border-rose-200 cursor-pointer'
+                                        }`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={selecionada}
+                                          disabled={doPerfil}
+                                          onChange={() => togglePermissaoExtra(sub.id)}
+                                          className="mt-0.5 w-4 h-4 text-rose-600 rounded focus:ring-rose-500 shrink-0"
+                                        />
+                                        <span className={`text-xs font-bold leading-snug ${selecionada ? 'text-rose-900' : 'text-slate-700'}`}>
+                                          {sub.nome}
+                                          {doPerfil && (
+                                            <span className="ml-1 text-[10px] text-violet-600 font-bold">(perfil)</span>
+                                          )}
+                                        </span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
 
                       if (perm.id === 'ROLE_UBS') {
                         const envioAtivo = temPermissaoEnvioProducao(permissoesEfetivasEdicao);

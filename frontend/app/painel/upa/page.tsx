@@ -3,8 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Activity, ArrowLeft, ClipboardList } from 'lucide-react';
+import { Activity, ArrowLeft, ClipboardList, Package } from 'lucide-react';
 import { getUsuario } from '@/lib/auth/session';
+import { temAcessoPortalUpa, temSubmoduloUpa } from '@/lib/admin/permissoes';
 
 export default function ModuloUPA() {
   const router = useRouter();
@@ -16,7 +17,7 @@ export default function ModuloUPA() {
       router.push('/login');
       return;
     }
-    if (!userObj.permissoes?.includes('upa_acesso') && !userObj.permissoes?.includes('admin')) {
+    if (!temAcessoPortalUpa(userObj.permissoes)) {
       alert("Acesso restrito aos servidores da UPA.");
       router.push('/painel');
       return;
@@ -26,6 +27,10 @@ export default function ModuloUPA() {
   }, []);
 
   if (!usuario) return null;
+
+  const perms = usuario.permissoes || [];
+  const podePrescricao = temSubmoduloUpa(perms, 'upa_prescricao');
+  const podeControleMedicamentos = temSubmoduloUpa(perms, 'upa_controle_medicamentos');
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans">
@@ -48,21 +53,39 @@ export default function ModuloUPA() {
         {/* ÁREA DAS FERRAMENTAS */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           
-          {/* BOTÃO DA PRESCRIÇÃO MÉDICA */}
-          <Link 
-            href="/painel/upa/prescricao" 
-            className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md hover:border-rose-300 transition-all group flex flex-col items-start gap-4"
-          >
-            <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl group-hover:scale-105 transition-transform">
-              <ClipboardList size={32} />
-            </div>
-            <div>
-              <h2 className="font-bold text-slate-800 text-xl">Prescrição Médica</h2>
-              <p className="text-sm text-slate-500 mt-2 leading-relaxed">
-                Busca de pacientes, receituário digital dinâmico e geração de PDF.
-              </p>
-            </div>
-          </Link>
+          {podePrescricao && (
+            <Link 
+              href="/painel/upa/prescricao" 
+              className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md hover:border-rose-300 transition-all group flex flex-col items-start gap-4"
+            >
+              <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl group-hover:scale-105 transition-transform">
+                <ClipboardList size={32} />
+              </div>
+              <div>
+                <h2 className="font-bold text-slate-800 text-xl">Prescrição Médica</h2>
+                <p className="text-sm text-slate-500 mt-2 leading-relaxed">
+                  Busca de pacientes, receituário digital dinâmico e geração de PDF.
+                </p>
+              </div>
+            </Link>
+          )}
+
+          {podeControleMedicamentos && (
+            <Link
+              href="/painel/upa/controle-medicamentos"
+              className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md hover:border-rose-300 transition-all group flex flex-col items-start gap-4"
+            >
+              <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl group-hover:scale-105 transition-transform">
+                <Package size={32} />
+              </div>
+              <div>
+                <h2 className="font-bold text-slate-800 text-xl">Controle de Medicamentos</h2>
+                <p className="text-sm text-slate-500 mt-2 leading-relaxed">
+                  Upload diário do PDF HÓRUS e catálogo de estoque da unidade.
+                </p>
+              </div>
+            </Link>
+          )}
 
         </div>
 

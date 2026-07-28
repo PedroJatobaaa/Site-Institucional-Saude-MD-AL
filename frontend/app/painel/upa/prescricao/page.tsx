@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useReactToPrint } from 'react-to-print';
 import { useRouter } from 'next/navigation';
 import { 
@@ -10,7 +11,59 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { ReceitaPDF } from './ReceitaPDF';
-import { getToken } from '@/lib/auth/session';
+import { getToken, getUsuario } from '@/lib/auth/session';
+import { temSubmoduloUpa } from '@/lib/admin/permissoes';
+
+type TipoItem = 'MEDICAMENTO' | 'CUIDADO';
+
+type ItemPrescricao = {
+  id: number;
+  tipo: TipoItem;
+  medicamentoId?: number | null;
+  descricao: string;
+  horario: string;
+  dev: string;
+};
+
+type MedicamentoCatalogo = {
+  id: number;
+  codigo: string;
+  nome: string;
+  unidade?: string | null;
+  quantidade?: number | null;
+};
+
+const CUIDADOS_PROTOCOLO = /^(DIETA|ELEVAR|MUDAR|SINAIS)/i;
+
+function normalizarBusca(s: string) {
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .trim();
+}
+
+function encontrarMedicamentoNoEstoque(descricao: string, catalogo: MedicamentoCatalogo[]) {
+  const alvo = normalizarBusca(descricao);
+  const palavras = alvo.split(' ').filter((p) => p.length > 3);
+  if (!palavras.length) return null;
+
+  // Preferência: nome do estoque contido na descrição ou primeira palavra forte
+  let melhor: MedicamentoCatalogo | null = null;
+  let melhorScore = 0;
+  for (const med of catalogo) {
+    const nome = normalizarBusca(med.nome);
+    if (alvo.includes(nome) || nome.includes(palavras[0])) {
+      const score = palavras.filter((p) => nome.includes(p)).length;
+      if (score > melhorScore) {
+        melhorScore = score;
+        melhor = med;
+      }
+    }
+  }
+  return melhorScore > 0 ? melhor : null;
+}
 
 export default function NovaPrescricao() {
   const router = useRouter();
@@ -32,9 +85,16 @@ export default function NovaPrescricao() {
   const [setor, setSetor] = useState('');
   const [leito, setLeito] = useState('');
   const [custo, setCusto] = useState(''); 
-  const [itens, setItens] = useState([
-    { id: Date.now(), tipo: 'MEDICAMENTO', descricao: '', horario: '', dev: '' }
+  const [itens, setItens] = useState<ItemPrescricao[]>([
+    { id: Date.now(), tipo: 'MEDICAMENTO', medicamentoId: null, descricao: '', horario: '', dev: '' }
   ]);
+  const [catalogo, setCatalogo] = useState<MedicamentoCatalogo[]>([]);
+  const [estoqueInfo, setEstoqueInfo] = useState<{ data_referencia: string | null } | null>(null);
+  const [buscaMedPorItem, setBuscaMedPorItem] = useState<Record<number, string>>({});
+  const [dropdownAbertoId, setDropdownAbertoId] = useState<number | null>(null);
+  const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const buscaMedInputRef = useRef<HTMLInputElement | null>(null);
+  const dropdownPortalRef = useRef<HTMLDivElement | null>(null);
 
   // Estados: Histórico (Linha do Tempo)
   const [historico, setHistorico] = useState<any[]>([]);
@@ -55,7 +115,7 @@ export default function NovaPrescricao() {
       { dev: '-',  descricao: 'DIETA:', horario: '' },
       { dev: 'EV', descricao: 'CEFTRIAXONA 2G + 100ML SF 0,9% 24H --- D0:', horario: '' },
       { dev: 'EV', descricao: 'DIPIRONA 500MG/ML, 02ML + AD SE DOR OU FEBRE, 6/6H ', horario: '' },
-      { dev: 'EV', descricao: 'TRAMAL 50MG/ML + 100ML DE SF (LENTO), SE DOR REFRATRIA, 8/8H', horario: '' },
+      { dev: 'EV', descricao: 'TRAMADOL 50MG/ML + 100ML DE SF (LENTO), SE DOR REFRATRIA, 8/8H', horario: '', alias: 'TRAMAL' },
       { dev: 'EV', descricao: 'BROMOPRIDA 01 AMP + AD, SE NAUSEA OU VOMITO, 8/8H', horario: '' },
       { dev: 'VO', descricao: 'CAPTOPRIL 25MG 01 CP SE PA ≥ 160x110 mmHg', horario: '' },
       { dev: 'SC', descricao: 'INSULINA REGULAR - ESQUEMA: 200-250 (4UI) | 251-300 (6UI) | 301-350 (8UI) | 351-400 (10UI) | >400 (12UI)', horario: '' },
@@ -67,16 +127,86 @@ export default function NovaPrescricao() {
     ]
   };
 
-  const aplicarProtocolo = (chave: keyof typeof protocolos) => {
-    const itensDoProtocolo = protocolos[chave].map((item, index) => ({
-      id: Date.now() + index,
-      tipo: 'MEDICAMENTO',
-      descricao: item.descricao,
-      horario: item.horario,
-      dev: item.dev
-    }));
+  useEffect(() => {
+    const userObj = getUsuario();
+    if (!userObj) {
+      router.push('/login');
+      return;
+    }
+    if (!temSubmoduloUpa(userObj.permissoes, 'upa_prescricao')) {
+      alert('Acesso restrito à Prescrição Médica da UPA.');
+      router.push('/painel/upa');
+      return;
+    }
+  }, []);
 
-    if (itens.length === 1 && itens[0].descricao === '') {
+  useEffect(() => {
+    const carregarCatalogo = async () => {
+      try {
+        const token = getToken();
+        const res = await fetch('/api/upa/medicamentos', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const dados = await res.json();
+        setCatalogo(dados.itens || []);
+        setEstoqueInfo({ data_referencia: dados.data_referencia || null });
+      } catch {
+        /* ignore */
+      }
+    };
+    carregarCatalogo();
+  }, []);
+
+  const aplicarProtocolo = (chave: keyof typeof protocolos) => {
+    if (!catalogo.length) {
+      alert('Não há estoque ativo. Importe e confirme o PDF em Controle de Medicamentos.');
+      return;
+    }
+
+    const faltando: string[] = [];
+    const itensDoProtocolo: ItemPrescricao[] = [];
+
+    protocolos[chave].forEach((item, index) => {
+      const ehCuidado = item.dev === '-' || CUIDADOS_PROTOCOLO.test(item.descricao);
+      if (ehCuidado) {
+        itensDoProtocolo.push({
+          id: Date.now() + index,
+          tipo: 'CUIDADO',
+          medicamentoId: null,
+          descricao: item.descricao,
+          horario: item.horario,
+          dev: item.dev,
+        });
+        return;
+      }
+
+      const termo = (item as any).alias
+        ? `${(item as any).alias} ${item.descricao}`
+        : item.descricao;
+      const med = encontrarMedicamentoNoEstoque(termo, catalogo);
+      if (!med) {
+        faltando.push(item.descricao.split(/[,\-+]/)[0].trim());
+        return;
+      }
+
+      itensDoProtocolo.push({
+        id: Date.now() + index,
+        tipo: 'MEDICAMENTO',
+        medicamentoId: med.id,
+        descricao: `${med.nome}${(item.descricao.includes('+') || item.descricao.includes('SE ') || item.descricao.includes('ESQUEMA')) ? ` — ${item.descricao}` : ''}`,
+        horario: item.horario,
+        dev: item.dev,
+      });
+    });
+
+    if (faltando.length) {
+      alert(`Itens do protocolo sem correspondência no estoque ativo (omitidos):\n• ${faltando.join('\n• ')}`);
+    }
+
+    if (!itensDoProtocolo.length) return;
+
+    if (itens.length === 1 && itens[0].descricao === '' && !itens[0].medicamentoId) {
       setItens(itensDoProtocolo);
     } else {
       setItens([...itens, ...itensDoProtocolo]);
@@ -118,6 +248,14 @@ export default function NovaPrescricao() {
     if (!pacienteSelecionado.cpf || pacienteSelecionado.cpf.trim() === '') {
       alert(" ATENÇÃO: É obrigatório informar o CPF do paciente para gerar a prescrição.");
       setEditando(true);
+      return;
+    }
+
+    const medSemSelecao = itens.some(
+      (i) => i.tipo === 'MEDICAMENTO' && !i.medicamentoId && !i.descricao.trim()
+    );
+    if (medSemSelecao) {
+      alert('Selecione os medicamentos do estoque ou remova as linhas vazias.');
       return;
     }
 
@@ -294,13 +432,22 @@ export default function NovaPrescricao() {
     }
   };
 
-  const adicionarLinha = () => setItens([...itens, { id: Date.now(), tipo: 'MEDICAMENTO', descricao: '', horario: '', dev: '' }]);
+  const adicionarLinha = () =>
+    setItens([
+      ...itens,
+      { id: Date.now(), tipo: 'MEDICAMENTO', medicamentoId: null, descricao: '', horario: '', dev: '' },
+    ]);
   const limparItem = (id: number) => {
     setItens(itens.map(item =>
       item.id === id
-        ? { ...item, id: Date.now(), dev: '', descricao: '', horario: '' }
+        ? { ...item, id: Date.now(), tipo: 'MEDICAMENTO', medicamentoId: null, dev: '', descricao: '', horario: '' }
         : item
     ));
+    setBuscaMedPorItem((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
   const removerLinha = (id: number, index: number) => {
     if (index === 0) {
@@ -322,7 +469,91 @@ export default function NovaPrescricao() {
     setItens(novaLista);
   };
   const atualizarItem = (id: number, campo: string, valor: string) => {
-    setItens(itens.map(item => item.id === id ? { ...item, [campo]: valor } : item));
+    setItens(itens.map(item => {
+      if (item.id !== id) return item;
+      if (campo === 'tipo') {
+        const tipo = valor as TipoItem;
+        return {
+          ...item,
+          tipo,
+          medicamentoId: tipo === 'CUIDADO' ? null : item.medicamentoId,
+          descricao: tipo === 'CUIDADO' ? item.descricao : (item.medicamentoId ? item.descricao : ''),
+        };
+      }
+      return { ...item, [campo]: valor };
+    }));
+  };
+
+  const selecionarMedicamento = (itemId: number, med: MedicamentoCatalogo) => {
+    setItens((prev) =>
+      prev.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              tipo: 'MEDICAMENTO',
+              medicamentoId: med.id,
+              descricao: med.nome,
+            }
+          : item
+      )
+    );
+    setBuscaMedPorItem((prev) => ({ ...prev, [itemId]: med.nome }));
+    setDropdownAbertoId(null);
+    setDropdownRect(null);
+  };
+
+  const atualizarPosicaoDropdown = () => {
+    const el = buscaMedInputRef.current;
+    if (!el || dropdownAbertoId == null) {
+      setDropdownRect(null);
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    setDropdownRect({
+      top: r.bottom + 4,
+      left: r.left,
+      width: Math.max(r.width, 240),
+    });
+  };
+
+  useEffect(() => {
+    if (dropdownAbertoId == null) {
+      setDropdownRect(null);
+      return;
+    }
+    atualizarPosicaoDropdown();
+    const onScrollOrResize = () => atualizarPosicaoDropdown();
+    window.addEventListener('scroll', onScrollOrResize, true);
+    window.addEventListener('resize', onScrollOrResize);
+    return () => {
+      window.removeEventListener('scroll', onScrollOrResize, true);
+      window.removeEventListener('resize', onScrollOrResize);
+    };
+  }, [dropdownAbertoId, buscaMedPorItem]);
+
+  useEffect(() => {
+    if (dropdownAbertoId == null) return;
+    const onPointerDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (buscaMedInputRef.current?.contains(t)) return;
+      if (dropdownPortalRef.current?.contains(t)) return;
+      setDropdownAbertoId(null);
+      setDropdownRect(null);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [dropdownAbertoId]);
+
+  const sugestoesMedicamento = (itemId: number) => {
+    const q = (buscaMedPorItem[itemId] || '').trim().toLowerCase();
+    if (!q || q.length < 2) return catalogo.slice(0, 12);
+    return catalogo
+      .filter(
+        (m) =>
+          m.nome.toLowerCase().includes(q) ||
+          m.codigo.toLowerCase().includes(q)
+      )
+      .slice(0, 20);
   };
 
   const duplicarPrescricaoAnterior = (prescricaoAntiga: any) => {
@@ -330,11 +561,20 @@ export default function NovaPrescricao() {
       setSetor(prescricaoAntiga.setor || '');
       setLeito(prescricaoAntiga.leito || '');
       setCusto(prescricaoAntiga.custo || '');
-      const itensCopiados = prescricaoAntiga.itens.map((item: any, index: number) => ({
-        ...item, id: Date.now() + index 
+      const itensCopiados: ItemPrescricao[] = prescricaoAntiga.itens.map((item: any, index: number) => ({
+        id: Date.now() + index,
+        tipo: (item.tipo === 'CUIDADO' ? 'CUIDADO' : 'MEDICAMENTO') as TipoItem,
+        medicamentoId: item.medicamentoId ?? null,
+        descricao: item.descricao || '',
+        horario: item.horario || '',
+        dev: item.dev || '',
       }));
       setItens(itensCopiados);
-      // Rola a tela de volta para cima onde está a tabela agora
+      const buscas: Record<number, string> = {};
+      itensCopiados.forEach((it) => {
+        if (it.tipo === 'MEDICAMENTO' && it.descricao) buscas[it.id] = it.descricao.split(' — ')[0];
+      });
+      setBuscaMedPorItem(buscas);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -537,9 +777,20 @@ export default function NovaPrescricao() {
           
           {/* 👇 BARRA DE PROTOCOLOS RÁPIDOS 👇 */}
           <div className="bg-blue-50/50 border-b border-blue-100 p-3 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-1">
-              <Zap size={14} /> Prescrições Padrão
-            </span>
+            <div>
+              <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-1">
+                <Zap size={14} /> Prescrições Padrão
+              </span>
+              {estoqueInfo?.data_referencia ? (
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Estoque ativo: {new Date(estoqueInfo.data_referencia).toLocaleDateString('pt-BR')} · {catalogo.length} itens
+                </p>
+              ) : (
+                <p className="text-[11px] text-amber-600 mt-1 font-medium">
+                  Sem estoque ativo — importe o PDF em Controle de Medicamentos.
+                </p>
+              )}
+            </div>
             <button 
               onClick={() => aplicarProtocolo('padrao')}
               className="text-xs font-bold bg-white border border-blue-200 text-blue-700 px-4 py-2 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm flex items-center gap-2"
@@ -548,20 +799,32 @@ export default function NovaPrescricao() {
             </button>
           </div>
 
-          <table className="w-full text-left">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] table-fixed text-left">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="p-4 text-[11px] font-black text-slate-400 uppercase w-16 text-center">Nº</th>
+                <th className="p-4 text-[11px] font-black text-slate-400 uppercase w-12 text-center">Nº</th>
+                <th className="p-4 text-[11px] font-black text-slate-400 uppercase w-36 text-center">Tipo</th>
                 <th className="p-4 text-[11px] font-black text-slate-400 uppercase w-20 text-center">DEV</th>
                 <th className="p-4 text-[11px] font-black text-slate-400 uppercase">Prescrição</th>
-                <th className="p-4 text-[11px] font-black text-slate-400 uppercase w-48 text-center">Horários</th>
+                <th className="p-4 text-[11px] font-black text-slate-400 uppercase w-36 text-center">Horários</th>
                 <th className="p-4 w-20"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {itens.map((item, index) => (
-                <tr key={item.id} className="group hover:bg-slate-50/50">
+                <tr key={item.id} className="group hover:bg-slate-50/50 align-top">
                   <td className="p-4 text-center font-bold text-slate-400">{index + 1}</td>
+                  <td className="p-2">
+                    <select
+                      value={item.tipo}
+                      onChange={(e) => atualizarItem(item.id, 'tipo', e.target.value)}
+                      className="w-full min-w-0 py-2 pl-2 pr-7 bg-transparent outline-none text-left focus:bg-white focus:ring-1 focus:ring-rose-100 rounded-lg font-bold text-xs text-slate-700"
+                    >
+                      <option value="MEDICAMENTO">Medicamento</option>
+                      <option value="CUIDADO">Cuidado</option>
+                    </select>
+                  </td>
                   <td className="p-2">
                     <input 
                       type="text" 
@@ -570,12 +833,67 @@ export default function NovaPrescricao() {
                       value={item.dev} onChange={(e) => atualizarItem(item.id, 'dev', e.target.value)}
                     />
                   </td>
-                  <td className="p-2">
-                    <textarea 
-                      className="w-full p-2 bg-transparent outline-none resize-none focus:bg-white focus:ring-1 focus:ring-rose-100 rounded-lg transition-all font-medium text-slate-700"
-                      placeholder="Ex: DIPIRONA 1G EV..." rows={1}
-                      value={item.descricao} onChange={(e) => atualizarItem(item.id, 'descricao', e.target.value)}
-                    />
+                  <td className="p-2 relative min-w-0">
+                    {item.tipo === 'CUIDADO' ? (
+                      <textarea 
+                        className="w-full p-2 bg-transparent outline-none resize-none focus:bg-white focus:ring-1 focus:ring-rose-100 rounded-lg transition-all font-medium text-slate-700"
+                        placeholder="Ex: ELEVAR CABECEIRA 30°..." rows={2}
+                        value={item.descricao} onChange={(e) => atualizarItem(item.id, 'descricao', e.target.value)}
+                      />
+                    ) : (
+                      <div className="space-y-1 min-w-0">
+                        <input
+                          type="text"
+                          className="w-full p-2 bg-transparent outline-none focus:bg-white focus:ring-1 focus:ring-rose-100 rounded-lg transition-all font-medium text-slate-700"
+                          placeholder={catalogo.length ? 'Buscar medicamento no estoque...' : 'Sem estoque ativo'}
+                          disabled={!catalogo.length}
+                          value={buscaMedPorItem[item.id] ?? item.descricao}
+                          onFocus={(e) => {
+                            buscaMedInputRef.current = e.currentTarget;
+                            setDropdownAbertoId(item.id);
+                          }}
+                          onChange={(e) => {
+                            buscaMedInputRef.current = e.currentTarget;
+                            setBuscaMedPorItem((prev) => ({ ...prev, [item.id]: e.target.value }));
+                            setDropdownAbertoId(item.id);
+                            if (item.medicamentoId) {
+                              setItens((prev) =>
+                                prev.map((it) =>
+                                  it.id === item.id ? { ...it, medicamentoId: null, descricao: '' } : it
+                                )
+                              );
+                            }
+                          }}
+                        />
+                        {item.medicamentoId && (
+                          <input
+                            type="text"
+                            className="w-full p-2 text-xs bg-slate-50 border border-slate-100 rounded-lg outline-none focus:ring-1 focus:ring-rose-100"
+                            placeholder="Complemento (dose, diluição, se dor...)"
+                            value={
+                              item.descricao.startsWith(
+                                catalogo.find((m) => m.id === item.medicamentoId)?.nome || ''
+                              )
+                                ? item.descricao
+                                    .slice((catalogo.find((m) => m.id === item.medicamentoId)?.nome || '').length)
+                                    .replace(/^\s*[—\-]\s*/, '')
+                                : item.descricao === (catalogo.find((m) => m.id === item.medicamentoId)?.nome || '')
+                                  ? ''
+                                  : item.descricao
+                            }
+                            onChange={(e) => {
+                              const medNome = catalogo.find((m) => m.id === item.medicamentoId)?.nome || '';
+                              const complemento = e.target.value;
+                              atualizarItem(
+                                item.id,
+                                'descricao',
+                                complemento.trim() ? `${medNome} — ${complemento}` : medNome
+                              );
+                            }}
+                          />
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="p-2">
                     <input 
@@ -621,6 +939,7 @@ export default function NovaPrescricao() {
               ))}
             </tbody>
           </table>
+          </div>
           <div className="p-4 bg-slate-50 border-t border-slate-100">
             <button onClick={adicionarLinha} className="flex items-center gap-2 text-rose-600 font-bold text-sm hover:bg-rose-100 px-4 py-2 rounded-xl transition-all">
               <Plus size={18} /> Adicionar Item
@@ -744,6 +1063,45 @@ export default function NovaPrescricao() {
           dataPrescricao={pdfSnapshot?.dataPrescricao}
         />
       </div>
+
+      {typeof document !== 'undefined' &&
+        dropdownAbertoId != null &&
+        dropdownRect &&
+        catalogo.length > 0 &&
+        createPortal(
+          <div
+            ref={dropdownPortalRef}
+            style={{
+              position: 'fixed',
+              top: dropdownRect.top,
+              left: dropdownRect.left,
+              width: dropdownRect.width,
+              zIndex: 100,
+            }}
+            className="max-h-60 overflow-y-auto overflow-x-hidden bg-white border border-slate-200 rounded-xl shadow-xl"
+          >
+            {sugestoesMedicamento(dropdownAbertoId).map((med) => (
+              <button
+                key={med.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => selecionarMedicamento(dropdownAbertoId, med)}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-rose-50 border-b border-slate-50 last:border-0 min-w-0"
+              >
+                <span className="font-medium text-slate-800 break-words block leading-snug">{med.nome}</span>
+                <span className="block text-[10px] text-slate-400 font-mono truncate">
+                  {med.codigo}
+                  {med.unidade ? ` · ${med.unidade}` : ''}
+                  {med.quantidade != null ? ` · qtde ${med.quantidade}` : ''}
+                </span>
+              </button>
+            ))}
+            {sugestoesMedicamento(dropdownAbertoId).length === 0 && (
+              <p className="px-3 py-2 text-xs text-slate-500">Nenhum item encontrado.</p>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

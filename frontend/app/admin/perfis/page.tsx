@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { ShieldCheck, Plus, Edit, Trash2, X, CheckCircle, Users, Search } from 'lucide-react';
-import { PERMISSOES_DISPONIVEIS } from '@/lib/admin/permissoes';
+import { PERMISSOES_DISPONIVEIS, SUBMODULOS_UPA, IDS_SUBMODULOS_UPA, isSubmoduloUpa, contarSubmodulosUpa } from '@/lib/admin/permissoes';
 import { FILAS_PRODUCAO } from '@/lib/producao/filasProducao';
 import {
   GRUPOS_CBO_PERFIL,
@@ -167,7 +167,13 @@ export default function AdminPerfisPage() {
 
   const togglePermissao = (id: string) => {
     const tem = form.permissoes.includes(id);
-    const novas = tem ? form.permissoes.filter((p) => p !== id) : [...form.permissoes, id];
+    let novas = tem ? form.permissoes.filter((p) => p !== id) : [...form.permissoes, id];
+    if (id === 'upa_acesso' && tem) {
+      novas = novas.filter((p) => !IDS_SUBMODULOS_UPA.includes(p));
+    }
+    if (isSubmoduloUpa(id) && !tem && !novas.includes('upa_acesso')) {
+      novas.push('upa_acesso');
+    }
     const atualizado = { ...form, permissoes: novas };
     if (id === 'ROLE_UBS' && tem) atualizado.filasProducao = [];
     setForm(atualizado);
@@ -188,6 +194,10 @@ export default function AdminPerfisPage() {
     }
     if (form.permissoes.includes('ROLE_UBS') && form.filasProducao.length === 0) {
       alert('Selecione ao menos uma fila de produção para perfis com envio UBS.');
+      return;
+    }
+    if (form.permissoes.includes('upa_acesso') && contarSubmodulosUpa(form.permissoes) === 0) {
+      alert('Selecione ao menos um submódulo da UPA (Prescrição ou Controle de Medicamentos).');
       return;
     }
 
@@ -497,6 +507,47 @@ export default function AdminPerfisPage() {
                 <h4 className="text-xs font-bold uppercase text-slate-800 mb-2">Permissões do perfil</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto border border-slate-200 rounded-xl p-2 bg-slate-50">
                   {PERMISSOES_DISPONIVEIS.map((perm) => {
+                    if (isSubmoduloUpa(perm.id)) return null;
+
+                    if (perm.id === 'upa_acesso') {
+                      const ativo = form.permissoes.includes('upa_acesso');
+                      return (
+                        <div key={perm.id} className="sm:col-span-2 space-y-2">
+                          <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 bg-white cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={ativo}
+                              onChange={() => togglePermissao(perm.id)}
+                              className="rounded text-violet-600"
+                            />
+                            <span className={`text-xs font-medium ${ativo ? 'text-violet-900' : 'text-slate-800'}`}>
+                              {perm.nome}
+                            </span>
+                          </label>
+                          {ativo && (
+                            <div className="ml-4 grid grid-cols-1 sm:grid-cols-2 gap-1 max-h-32 overflow-y-auto border border-rose-200 rounded-lg p-2 bg-rose-50/50">
+                              {SUBMODULOS_UPA.map((sub) => {
+                                const marcado = form.permissoes.includes(sub.id);
+                                return (
+                                  <label key={sub.id} className="flex items-start gap-2 p-1.5 text-xs cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={marcado}
+                                      onChange={() => togglePermissao(sub.id)}
+                                      className="mt-0.5 rounded text-rose-600"
+                                    />
+                                    <span className={marcado ? 'text-rose-900 font-semibold' : 'text-slate-800'}>
+                                      {sub.nome}
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
                     if (perm.id === 'ROLE_UBS') {
                       const ativo = form.permissoes.includes('ROLE_UBS');
                       return (

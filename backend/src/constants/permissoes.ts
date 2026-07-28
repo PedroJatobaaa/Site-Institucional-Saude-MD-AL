@@ -4,6 +4,8 @@ export const PERMISSOES_VALIDAS = [
   'documentos_gerenciar',
   'sistemas_esus',
   'upa_acesso',
+  'upa_prescricao',
+  'upa_controle_medicamentos',
   'central_marcacoes',
   'ROLE_UBS',
   'ROLE_PROCESSAMENTO',

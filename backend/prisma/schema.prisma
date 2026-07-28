@@ -209,6 +209,34 @@ model Prescricao {
   @@map("prescricoes")
 }
 
+model EstoqueMedicamento {
+  id              Int                  @id @default(autoincrement())
+  data_referencia DateTime             @db.Date
+  arquivo_path    String
+  arquivo_nome    String
+  status          String               @default("RASCUNHO") // RASCUNHO | ATIVO | SUBSTITUIDO
+  enviado_por     String?
+  createdAt       DateTime             @default(now())
+  itens           MedicamentoEstoque[]
+
+  @@map("estoques_medicamento")
+}
+
+model MedicamentoEstoque {
+  id          Int                @id @default(autoincrement())
+  estoque     EstoqueMedicamento @relation(fields: [estoqueId], references: [id], onDelete: Cascade)
+  estoqueId   Int
+  codigo      String
+  nome        String
+  unidade     String?
+  quantidade  Int?
+  ativo       Boolean            @default(true)
+
+  @@index([estoqueId])
+  @@index([nome])
+  @@map("medicamentos_estoque")
+}
+
 enum StatusProducao {
   RECEBIDO
   PROCESSANDO

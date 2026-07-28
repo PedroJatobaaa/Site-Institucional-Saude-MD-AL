@@ -21,6 +21,8 @@ import { limparNumeros } from './utils/validators/documentos';
 import { permissoesEfetivas } from './utils/permissoesUsuario';
 import { carregarUnidadesPorNivel } from './utils/unidadesCache';
 import { buscarUsuarioPorLogin } from './utils/primeiroAcessoCnes';
+import { parseEstoquePdfBuffer } from './services/upa/parseEstoquePdf';
+import { temSubmoduloUpa } from './constants/submodulosUpa';
 
 function calcularIdade(dataNascimento: string | null | undefined): number | null {
   if (!dataNascimento) return null;
@@ -108,6 +110,38 @@ const uploadXml = multer({
     else cb(new Error('Apenas arquivos .xml são permitidos.'));
   },
 });
+
+const estoquesUpaPath = path.resolve(__dirname, '..', 'uploads', 'upa', 'estoques');
+if (!fs.existsSync(estoquesUpaPath)) {
+  fs.mkdirSync(estoquesUpaPath, { recursive: true });
+}
+
+const storageEstoqueUpa = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, estoquesUpaPath),
+  filename: (_req, file, cb) => {
+    const tempo = Date.now();
+    const nomeLimpo = file.originalname.replace(/\s/g, '_');
+    cb(null, `${tempo}-${nomeLimpo}`);
+  },
+});
+
+const uploadEstoqueUpa = multer({
+  storage: storageEstoqueUpa,
+  limits: { fileSize: 40 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.pdf') cb(null, true);
+    else cb(new Error('Apenas arquivos PDF são permitidos.'));
+  },
+});
+
+function temAcessoPrescricaoUpa(usuario: any): boolean {
+  return temSubmoduloUpa(usuario?.permissoes, 'upa_prescricao');
+}
+
+function temAcessoControleMedicamentos(usuario: any): boolean {
+  return temSubmoduloUpa(usuario?.permissoes, 'upa_controle_medicamentos');
+}
 
 // ---------------------------------------------------------
 // MIDDLEWARE DE SEGURANÇA
@@ -479,8 +513,8 @@ app.get('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promis
     }
 
     const { permissoes } = req.usuario;
-    if (!permissoes || (!permissoes.includes('upa_acesso') && !permissoes.includes('admin'))) {
-      console.log("❌ ERRO: Usuário sem permissão 'upa_acesso'.");
+    if (!temAcessoPrescricaoUpa(req.usuario)) {
+      console.log("❌ ERRO: Usuário sem permissão de prescrição UPA.");
       return res.status(403).json({ erro: 'Sem permissão.' });
     }
 
@@ -532,8 +566,7 @@ app.get('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promis
 // 2. CADASTRAR NOVO PACIENTE
 app.post('/api/upa/pacientes', verificarToken, async (req: any, res: any): Promise<any> => {
   try {
-    const { permissoes } = req.usuario;
-    if (!permissoes.includes('upa_acesso') && !permissoes.includes('admin')) {
+    if (!temAcessoPrescricaoUpa(req.usuario)) {
       return res.status(403).json({ erro: 'Sem permissão para cadastrar pacientes.' });
     }
 
@@ -621,8 +654,8 @@ app.patch('/api/upa/pacientes/:id', verificarToken, async (req: any, res: any): 
 // 4. SALVAR PRESCRIÇÃO MÉDICA NO BANCO
 app.post('/api/upa/prescricoes', verificarToken, async (req: any, res: any): Promise<any> => {
   try {
-    const { nome: medico_nome, permissoes } = req.usuario;
-    if (!permissoes.includes('upa_acesso') && !permissoes.includes('admin')) {
+    const { nome: medico_nome } = req.usuario;
+    if (!temAcessoPrescricaoUpa(req.usuario)) {
       return res.status(403).json({ erro: 'Sem permissão para emitir prescrições.' });
     }
 
@@ -676,6 +709,285 @@ app.get('/api/upa/pacientes/:id/prescricoes', verificarToken, async (req: any, r
   } catch (error) {
     console.error("❌ ERRO AO BUSCAR HISTÓRICO DE PRESCRIÇÕES:", error);
     return res.status(500).json({ erro: 'Falha ao carregar o histórico.' });
+  }
+});
+
+// ========================================================
+// CONTROLE DE MEDICAMENTOS (ESTOQUE HÓRUS)
+// ========================================================
+
+app.post('/api/upa/estoques', verificarToken, uploadEstoqueUpa.single('arquivo'), async (req: any, res: any): Promise<any> => {
+  try {
+    if (!temAcessoControleMedicamentos(req.usuario)) {
+      return res.status(403).json({ erro: 'Sem permissão.' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ erro: 'Envie o PDF do estoque.' });
+    }
+
+    const buffer = fs.readFileSync(req.file.path);
+    const parseado = await parseEstoquePdfBuffer(buffer);
+
+    if (!parseado.itens.length) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({
+        erro: 'Não foi possível extrair medicamentos do PDF. Confira se é o relatório HÓRUS Posição de Estoque.',
+      });
+    }
+
+    const dataRef = parseado.data_referencia || new Date();
+    const arquivoRelativo = path.join('upa', 'estoques', req.file.filename).replace(/\\/g, '/');
+
+    const estoque = await prisma.estoqueMedicamento.create({
+      data: {
+        data_referencia: dataRef,
+        arquivo_path: arquivoRelativo,
+        arquivo_nome: req.file.originalname,
+        status: 'RASCUNHO',
+        enviado_por: req.usuario?.nome || null,
+        itens: {
+          create: parseado.itens.map((item) => ({
+            codigo: item.codigo,
+            nome: item.nome,
+            unidade: item.unidade,
+            quantidade: item.quantidade,
+            ativo: true,
+          })),
+        },
+      },
+      include: { itens: { orderBy: { nome: 'asc' } } },
+    });
+
+    return res.status(201).json({
+      ...estoque,
+      total_itens: estoque.itens.length,
+    });
+  } catch (error: any) {
+    console.error('❌ ERRO AO IMPORTAR ESTOQUE:', error);
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+    }
+    return res.status(500).json({ erro: error?.message || 'Falha ao processar o PDF de estoque.' });
+  }
+});
+
+app.get('/api/upa/estoques', verificarToken, async (req: any, res: any): Promise<any> => {
+  try {
+    if (!temAcessoControleMedicamentos(req.usuario)) {
+      return res.status(403).json({ erro: 'Sem permissão.' });
+    }
+
+    const lista = await prisma.estoqueMedicamento.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { itens: true } } },
+    });
+
+    return res.status(200).json(
+      lista.map((e) => ({
+        id: e.id,
+        data_referencia: e.data_referencia,
+        arquivo_path: e.arquivo_path,
+        arquivo_nome: e.arquivo_nome,
+        status: e.status,
+        enviado_por: e.enviado_por,
+        createdAt: e.createdAt,
+        total_itens: e._count.itens,
+      }))
+    );
+  } catch (error) {
+    console.error('❌ ERRO AO LISTAR ESTOQUES:', error);
+    return res.status(500).json({ erro: 'Falha ao listar estoques.' });
+  }
+});
+
+app.get('/api/upa/estoques/ativo', verificarToken, async (req: any, res: any): Promise<any> => {
+  try {
+    if (!temAcessoControleMedicamentos(req.usuario)) {
+      return res.status(403).json({ erro: 'Sem permissão.' });
+    }
+
+    const ativo = await prisma.estoqueMedicamento.findFirst({
+      where: { status: 'ATIVO' },
+      include: {
+        itens: { where: { ativo: true }, orderBy: { nome: 'asc' } },
+      },
+    });
+
+    if (!ativo) {
+      return res.status(404).json({ erro: 'Nenhum estoque ativo. Importe e confirme um PDF no Controle de Medicamentos.' });
+    }
+
+    return res.status(200).json({
+      ...ativo,
+      total_itens: ativo.itens.length,
+    });
+  } catch (error) {
+    console.error('❌ ERRO AO BUSCAR ESTOQUE ATIVO:', error);
+    return res.status(500).json({ erro: 'Falha ao buscar estoque ativo.' });
+  }
+});
+
+app.get('/api/upa/estoques/:id', verificarToken, async (req: any, res: any): Promise<any> => {
+  try {
+    if (!temAcessoControleMedicamentos(req.usuario)) {
+      return res.status(403).json({ erro: 'Sem permissão.' });
+    }
+
+    const estoque = await prisma.estoqueMedicamento.findUnique({
+      where: { id: Number(req.params.id) },
+      include: { itens: { orderBy: { nome: 'asc' } } },
+    });
+
+    if (!estoque) {
+      return res.status(404).json({ erro: 'Estoque não encontrado.' });
+    }
+
+    return res.status(200).json({
+      ...estoque,
+      total_itens: estoque.itens.length,
+    });
+  } catch (error) {
+    console.error('❌ ERRO AO BUSCAR ESTOQUE:', error);
+    return res.status(500).json({ erro: 'Falha ao carregar estoque.' });
+  }
+});
+
+app.patch('/api/upa/estoques/:id', verificarToken, async (req: any, res: any): Promise<any> => {
+  try {
+    if (!temAcessoControleMedicamentos(req.usuario)) {
+      return res.status(403).json({ erro: 'Sem permissão.' });
+    }
+
+    const id = Number(req.params.id);
+    const estoque = await prisma.estoqueMedicamento.findUnique({ where: { id } });
+    if (!estoque) {
+      return res.status(404).json({ erro: 'Estoque não encontrado.' });
+    }
+
+    const { confirmar, itens } = req.body as {
+      confirmar?: boolean;
+      itens?: Array<{
+        id?: number;
+        codigo: string;
+        nome: string;
+        unidade?: string | null;
+        quantidade?: number | null;
+        ativo?: boolean;
+        _delete?: boolean;
+      }>;
+    };
+
+    if (Array.isArray(itens)) {
+      if (estoque.status !== 'RASCUNHO') {
+        return res.status(400).json({ erro: 'Só é possível editar itens de um estoque em rascunho.' });
+      }
+
+      await prisma.$transaction(async (tx) => {
+        for (const item of itens) {
+          if (item._delete && item.id) {
+            await tx.medicamentoEstoque.delete({ where: { id: item.id } });
+            continue;
+          }
+          if (item.id) {
+            await tx.medicamentoEstoque.update({
+              where: { id: item.id },
+              data: {
+                codigo: item.codigo,
+                nome: item.nome,
+                unidade: item.unidade ?? null,
+                quantidade: item.quantidade ?? null,
+                ativo: item.ativo !== false,
+              },
+            });
+          } else if (!item._delete) {
+            await tx.medicamentoEstoque.create({
+              data: {
+                estoqueId: id,
+                codigo: item.codigo || `MANUAL-${Date.now()}`,
+                nome: item.nome,
+                unidade: item.unidade ?? null,
+                quantidade: item.quantidade ?? null,
+                ativo: true,
+              },
+            });
+          }
+        }
+      });
+    }
+
+    if (confirmar) {
+      if (estoque.status === 'SUBSTITUIDO') {
+        return res.status(400).json({ erro: 'Este estoque já foi substituído e não pode ser reativado.' });
+      }
+
+      await prisma.$transaction(async (tx) => {
+        await tx.estoqueMedicamento.updateMany({
+          where: { status: 'ATIVO', NOT: { id } },
+          data: { status: 'SUBSTITUIDO' },
+        });
+        await tx.estoqueMedicamento.update({
+          where: { id },
+          data: { status: 'ATIVO' },
+        });
+      });
+    }
+
+    const atualizado = await prisma.estoqueMedicamento.findUnique({
+      where: { id },
+      include: { itens: { orderBy: { nome: 'asc' } } },
+    });
+
+    return res.status(200).json({
+      ...atualizado,
+      total_itens: atualizado?.itens.length ?? 0,
+    });
+  } catch (error) {
+    console.error('❌ ERRO AO ATUALIZAR ESTOQUE:', error);
+    return res.status(500).json({ erro: 'Falha ao atualizar estoque.' });
+  }
+});
+
+app.get('/api/upa/medicamentos', verificarToken, async (req: any, res: any): Promise<any> => {
+  try {
+    if (!temAcessoPrescricaoUpa(req.usuario) && !temAcessoControleMedicamentos(req.usuario)) {
+      return res.status(403).json({ erro: 'Sem permissão.' });
+    }
+
+    const ativo = await prisma.estoqueMedicamento.findFirst({
+      where: { status: 'ATIVO' },
+      select: { id: true, data_referencia: true },
+    });
+
+    if (!ativo) {
+      return res.status(200).json({ estoqueId: null, data_referencia: null, itens: [] });
+    }
+
+    const q = ((req.query.q as string) || '').trim();
+    const itens = await prisma.medicamentoEstoque.findMany({
+      where: {
+        estoqueId: ativo.id,
+        ativo: true,
+        ...(q
+          ? {
+              OR: [
+                { nome: { contains: q, mode: 'insensitive' } },
+                { codigo: { contains: q, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: { nome: 'asc' },
+      take: q ? 50 : 5000,
+    });
+
+    return res.status(200).json({
+      estoqueId: ativo.id,
+      data_referencia: ativo.data_referencia,
+      itens,
+    });
+  } catch (error) {
+    console.error('❌ ERRO AO LISTAR MEDICAMENTOS:', error);
+    return res.status(500).json({ erro: 'Falha ao listar medicamentos.' });
   }
 });
 

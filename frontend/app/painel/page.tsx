@@ -87,7 +87,8 @@ export default function PainelPrincipal() {
       icone: <Stethoscope size={28} className="text-rose-600" />,
       bgIcone: 'bg-rose-100',
       rota: '/painel/upa',
-      permissaoExigida: 'upa_acesso'
+      permissaoExigida: 'upa_acesso',
+      permissoesAlternativas: ['upa_prescricao', 'upa_controle_medicamentos'],
     },
     {
       id: 'central_marcacoes',
